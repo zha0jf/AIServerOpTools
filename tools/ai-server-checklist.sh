@@ -57,7 +57,7 @@ exec &> >(tee -a "$OUTPUT_FILE")
 
 # 6. 全局变量定义
 AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:|MetaX|9999:|Iluvatar|1e3e:|Hexaflake|1faa:"
-IF_KEYWORDS="Intel|8086:|Mellanox|15b3:"
+IF_KEYWORDS="Intel|8086:|Mellanox|15b3:|MUCSE|8848:|Wangxun|8088:|Corigine|1da8:|1f0f:|metaScale|1f67:"
 IP_LINK_FILTER="lo|vir|kube|cali|tunl|docker|veth|br-"
 
 # --- 输出抽象函数 ---
