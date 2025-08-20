@@ -55,6 +55,11 @@ MD_YELLOW="⚠️"
 # 5. 重定向所有输出
 exec &> >(tee -a "$OUTPUT_FILE")
 
+# 6. 全局变量定义
+AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:|MetaX|9999:|Iluvatar|1e3e:|Hexaflake|1faa:"
+IF_KEYWORDS="Intel|8086:|Mellanox|15b3:"
+IP_LINK_FILTER="lo|vir|kube|cali|tunl|docker|veth|br-"
+
 # --- 输出抽象函数 ---
 
 # H1 大标题
@@ -175,8 +180,8 @@ print_code "text" "$(lsblk -d -o NAME,MODEL,SIZE,TYPE,ROTA | grep -v "NAME" | gr
 
 print_h2 "1.6 网卡信息"
 print_h2 "物理网卡型号 (from lspci)"
-print_code "sh" "$(lspci | grep -iE 'ethernet|network')"
-for iface in $(ip -o link show | awk -F': ' '{print $2}' | grep -v -E 'lo|vir|docker|veth|br-'); do
+print_code "sh" "$(lspci | grep -iE "$IF_KEYWORDS")"
+for iface in $(ip -o link show | awk -F': ' '{print $2}' | grep -v -E "$IP_LINK_FILTER"); do
     print_h2 "网卡接口: $iface"
     STATE=$(ip a show "$iface" 2>/dev/null | grep 'state' | awk '{print $9}')
     if [ "$STATE" == "UP" ]; then
@@ -219,8 +224,6 @@ else
 fi
 
 print_h2 "1.9 AI卡详细信息 (lspci)"
-# 定义AI卡关键词
-AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:|MetaX|9999:|Iluvatar|1e3e:|Hexaflake|1faa:"
 # 获取AI卡的PCI地址
 AI_CARD_ADDRESSES=$(lspci -nn | grep -iE "$AI_CARD_KEYWORDS" | awk '{print $1}')
 if [ -n "$AI_CARD_ADDRESSES" ]; then
@@ -244,7 +247,7 @@ if [ -n "$AI_CARD_ADDRESSES" ]; then
             fi
             
             # 检查PCIE ASPM配置
-            ASPM_CONFIG=$(echo "$CARD_DETAILS" | grep "LnkCtl: ASPM" | sed 's/^[ \t]*//')
+            ASPM_CONFIG=$(echo "$CARD_DETAILS" | grep "LnkCtl:.*ASPM" | sed 's/^[ \t]*//')
             if [ -n "$ASPM_CONFIG" ]; then
                 print_kv "PCIE ASPM配置" "$ASPM_CONFIG"
             else
@@ -361,8 +364,9 @@ if [ -d /sys/class/iommu ] && [ -n "$(ls -A /sys/class/iommu)" ]; then
     # IOMMU IS ENABLED - This is now considered an ERROR for AI servers.
     print_status "IOMMU/SMMU 状态" "已开启 (Enabled) - AI服务器通常要求关闭" "error"
     
-    AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:"
-    AI_CARD_ADDRESSES=$(lspci -nn | grep -iE "$AI_CARD_KEYWORDS" | awk '{print $1}')
+    # 使用更有限的关键词集来检查IOMMU绑定状态
+    IOMMU_AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:"
+    AI_CARD_ADDRESSES=$(lspci -nn | grep -iE "$IOMMU_AI_CARD_KEYWORDS" | awk '{print $1}')
     if [ -n "$AI_CARD_ADDRESSES" ]; then
         print_h2 "AI 卡与 IOMMU 绑定状态 (诊断信息)"
         for addr in $AI_CARD_ADDRESSES; do
