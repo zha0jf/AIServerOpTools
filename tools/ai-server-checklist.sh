@@ -57,7 +57,7 @@ exec &> >(tee -a "$OUTPUT_FILE")
 
 # 6. 全局变量定义
 AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:|MetaX|9999:|Iluvatar|1e3e:|Hexaflake|1faa:"
-IF_KEYWORDS="Intel|8086:|Mellanox|15b3:|MUCSE|8848:|Wangxun|8088:|Corigine|1da8:|1f0f:|metaScale|1f67:"
+IF_KEYWORDS="Intel|8086:|Mellanox|15b3:|MUCSE|8848:|Wangxun|8088:|Corigine|1da8:|Nebula|1f0f:|metaScale|1f67:"
 IP_LINK_FILTER="lo|vir|kube|cali|tunl|docker|veth|br-"
 
 # --- 输出抽象函数 ---
@@ -78,6 +78,15 @@ print_h1() {
 print_h2() {
     if [ "$OUTPUT_MODE" == "markdown" ]; then
         echo -e "\n## $1"
+    else
+        echo -e "\n--- $1 ---"
+    fi
+}
+
+# H3 子章节标题
+print_h3() {
+    if [ "$OUTPUT_MODE" == "markdown" ]; then
+        echo -e "\n### $1"
     else
         echo -e "\n--- $1 ---"
     fi
@@ -179,10 +188,41 @@ print_h2 "数据盘信息"
 print_code "text" "$(lsblk -d -o NAME,MODEL,SIZE,TYPE,ROTA | grep -v "NAME" | grep -v "$SYSTEM_DISK")\n(注: ROTA列为0表示SSD/NVMe, 1表示HDD)"
 
 print_h2 "1.6 网卡信息"
-print_h2 "物理网卡型号 (from lspci)"
-print_code "sh" "$(lspci | grep -iE "$IF_KEYWORDS")"
+print_h3 "物理网卡型号 (from lspci)"
+# 获取物理网卡列表
+NETWORK_CARDS=$(lspci -nn | grep -iE "$IF_KEYWORDS")
+if [ -n "$NETWORK_CARDS" ]; then
+    # 逐个处理每个网卡
+    while IFS= read -r line; do
+        # 打印网卡信息
+        print_code "sh" "$line"
+        
+        # 提取PCI地址
+        addr=$(echo "$line" | awk '{print $1}')
+        
+        # 获取网卡详细信息
+        CARD_DETAILS=$(lspci -vvs $addr 2>/dev/null)
+        if [ -n "$CARD_DETAILS" ]; then
+            # 检查驱动
+            DRIVER=$(echo "$CARD_DETAILS" | grep "Kernel driver in use:" | awk -F': ' '{print $2}')
+            if [ -n "$DRIVER" ]; then
+                print_kv "加载驱动" "$DRIVER"
+            else
+                print_status "加载驱动" "未加载驱动" "warn"
+            fi
+        else
+            print_status "详细信息" "无法获取" "error"
+        fi
+        
+        # 输出空行以提高可读性
+        echo ""
+        
+    done <<< "$NETWORK_CARDS"
+else
+    print_status "物理网卡" "未检测到物理网卡" "warn"
+fi
 for iface in $(ip -o link show | awk -F': ' '{print $2}' | grep -v -E "$IP_LINK_FILTER"); do
-    print_h2 "网卡接口: $iface"
+    print_h3 "网卡接口: $iface"
     STATE=$(ip a show "$iface" 2>/dev/null | grep 'state' | awk '{print $9}')
     if [ "$STATE" == "UP" ]; then
         print_status "状态" "激活 (UP)" "ok"
@@ -228,7 +268,7 @@ print_h2 "1.9 AI卡详细信息 (lspci)"
 AI_CARD_ADDRESSES=$(lspci -nn | grep -iE "$AI_CARD_KEYWORDS" | awk '{print $1}')
 if [ -n "$AI_CARD_ADDRESSES" ]; then
     for addr in $AI_CARD_ADDRESSES; do
-        print_h2 "AI卡 (PCI地址: $addr)"
+        print_h3 "AI卡 (PCI地址: $addr)"
         # 使用lspci -vvs获取详细信息
         CARD_DETAILS=$(lspci -vvs $addr 2>/dev/null)
         if [ -n "$CARD_DETAILS" ]; then
@@ -317,13 +357,13 @@ print_code "sh" "$(cat /etc/os-release)"
 print_kv "当前运行内核" "$(uname -r)"
 
 print_h2 "2.2 编译器 (GCC) 和 Glibc (ldd) 版本"
-print_h2 "GCC Version"
+print_h3 "GCC Version"
 if command -v gcc &> /dev/null; then
     print_kv "GCC Version" "$(gcc --version | head -n1 | awk '{print $NF}')"
 else
     print_status "GCC" "未安装" "error"
 fi
-print_h2 "Glibc (ldd) Version"
+print_h3 "Glibc (ldd) Version"
 if command -v ldd &> /dev/null; then
     print_kv "Glibc (ldd) Version" "$(ldd --version | head -n1 | awk '{print $NF}')"
 else
@@ -368,7 +408,7 @@ if [ -d /sys/class/iommu ] && [ -n "$(ls -A /sys/class/iommu)" ]; then
     IOMMU_AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:"
     AI_CARD_ADDRESSES=$(lspci -nn | grep -iE "$IOMMU_AI_CARD_KEYWORDS" | awk '{print $1}')
     if [ -n "$AI_CARD_ADDRESSES" ]; then
-        print_h2 "AI 卡与 IOMMU 绑定状态 (诊断信息)"
+        print_h3 "AI 卡与 IOMMU 绑定状态 (诊断信息)"
         for addr in $AI_CARD_ADDRESSES; do
             if [ -L "/sys/bus/pci/devices/0000:$addr/iommu" ]; then
                 GROUP=$(readlink "/sys/bus/pci/devices/0000:$addr/iommu" | rev | cut -d'/' -f1 | rev)
