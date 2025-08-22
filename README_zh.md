@@ -14,6 +14,8 @@
 
 3. **InfiniBand流量监控工具** (`tools/ib_traffic_monitor.py`)：一个Python脚本，用于监控AI服务器上的InfiniBand（RDMA）网络流量。它能够实时显示所有或指定InfiniBand接口的发送和接收速率，帮助诊断网络性能问题。
 
+4. **GPU PCIe调优工具** (`tools/gpu-pcie-tuner.py`)：一个Python脚本，用于诊断和解决GPU P2P、D2H和H2D通信中的阻塞或减速问题。它能够列出GPU设备、显示P2P拓扑结构、追踪问题根源，并提供多种PCIe配置选项，包括启用/禁用ACS、启用PCIe扩展功能、设置MaxPayload、MaxReadReq和Completion Timeout等。
+
 ## 安装使用
 
 ```bash
@@ -52,6 +54,39 @@ python3 ./tools/ib_traffic_monitor.py -I mlx5_0
 ```
 
 按 `Ctrl+C` 停止监控。
+
+### GPU PCIe调优工具使用说明
+
+GPU PCIe调优工具 (`tools/gpu-pcie-tuner.py`) 需要安装并可访问 `lspci` 和 `setpci` 工具。它具有以下使用选项：
+
+```bash
+# 列出GPU设备
+python3 ./tools/gpu-pcie-tuner.py -l
+
+# 显示AI卡P2P拓扑
+python3 ./tools/gpu-pcie-tuner.py --topo
+
+# 追踪问题根源
+python3 ./tools/gpu-pcie-tuner.py --trace
+
+# 启用ACS
+sudo python3 ./tools/gpu-pcie-tuner.py --enable-acs
+
+# 禁用ACS
+sudo python3 ./tools/gpu-pcie-tuner.py --disable-acs
+
+# 启用PCIe扩展功能
+sudo python3 ./tools/gpu-pcie-tuner.py --enable-extend
+
+# 设置GPU MaxPayload为256B
+sudo python3 ./tools/gpu-pcie-tuner.py --set-mps 1
+
+# 设置GPU MaxReadReq为512B
+sudo python3 ./tools/gpu-pcie-tuner.py --set-mrrs 2
+
+# 设置GPU Completion Timeout Disable为enable
+sudo python3 ./tools/gpu-pcie-tuner.py --set-timeoutDis 1
+```
 
 ## 贡献指南
 

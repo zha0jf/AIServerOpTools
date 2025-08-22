@@ -14,6 +14,8 @@ This project currently contains three tools:
 
 3. **InfiniBand Traffic Monitor** (`tools/ib_traffic_monitor.py`): A Python script that monitors InfiniBand (RDMA) network traffic on AI servers. It displays real-time transmission and reception rates for all or specified InfiniBand interfaces, helping diagnose network performance issues.
 
+4. **GPU PCIe Tuner** (`tools/gpu-pcie-tuner.py`): A Python script designed to diagnose and resolve issues of GPU P2P, D2H, and H2D blockage or slowdown. It can list GPU devices, display P2P topology, trace the root causes of issues, and provide various PCIe configuration options, including enabling/disabling ACS, enabling PCIe extend capability, setting MaxPayload, MaxReadReq, and Completion Timeout.
+
 ## Installation and Usage
 
 ```bash
@@ -52,6 +54,39 @@ python3 ./tools/ib_traffic_monitor.py -I mlx5_0
 ```
 
 Press `Ctrl+C` to stop monitoring.
+
+### GPU PCIe Tuner Usage
+
+The GPU PCIe Tuner (`tools/gpu-pcie-tuner.py`) requires the `lspci` and `setpci` tools to be installed and accessible. It has the following usage options:
+
+```bash
+# List GPU devices
+python3 ./tools/gpu-pcie-tuner.py -l
+
+# Display AI card P2P topology
+python3 ./tools/gpu-pcie-tuner.py --topo
+
+# Trace the root causes of issues
+python3 ./tools/gpu-pcie-tuner.py --trace
+
+# Enable ACS
+sudo python3 ./tools/gpu-pcie-tuner.py --enable-acs
+
+# Disable ACS
+sudo python3 ./tools/gpu-pcie-tuner.py --disable-acs
+
+# Enable PCIe extend capability
+sudo python3 ./tools/gpu-pcie-tuner.py --enable-extend
+
+# Set GPU MaxPayload to 256B
+sudo python3 ./tools/gpu-pcie-tuner.py --set-mps 1
+
+# Set GPU MaxReadReq to 512B
+sudo python3 ./tools/gpu-pcie-tuner.py --set-mrrs 2
+
+# Set GPU Completion Timeout Disable to enable
+sudo python3 ./tools/gpu-pcie-tuner.py --set-timeoutDis 1
+```
 
 ## Contribution Guide
 
