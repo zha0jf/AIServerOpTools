@@ -24,6 +24,26 @@ AI_CARD_KEYWORDS = [
         "1faa:"   # Hexaflake的PCI ID
     ]
 
+# 定义厂商对应的AI卡管理工具
+VENDOR_TOOLS = {
+    "NVIDIA": ["nvidia-smi"],
+    "Huawei": ["npu-smi", "info"],
+    "Enrigin": ["ersmi"],
+    "MetaX": ["mx-smi"],
+    "Iluvatar": ["ixsmi"],
+    "Hexaflake": ["hxsmi"]
+}
+
+# 定义厂商对应的AI卡拓扑命令
+VENDOR_TOPO_TOOLS = {
+    "NVIDIA": ["nvidia-smi", "topo", "-m"],
+    "Huawei": ["npu-smi", "info", "-t", "--topo"],
+    "Enrigin": ["ersmi", "--topo"],
+    "MetaX": ["mx-smi", "topo", "-m"],
+    "Iluvatar": ["ixsmi", "topo", "-m"],
+    "Hexaflake": ["hxsmi", "topo"]
+}
+
 # --- 全局常量 (针对PCIe扩展功能) ---
 # 要操作的目标寄存器
 TARGET_REGISTER = "CAP_EXP+8.w"
@@ -94,19 +114,11 @@ def get_gpu_list():
             
         # 使用厂商对应的AI卡管理工具获取AI卡列表
         print("\nGPU List (from vendor tools):")
-        vendor_tools = {
-            "NVIDIA": ["nvidia-smi"],
-            "Huawei": ["npu-smi", "info"],
-            "Enrigin": ["ersmi"],
-            "MetaX": ["mx-smi"],
-            "Iluvatar": ["ixsmi"],
-            "Hexaflake": ["hxsmi"]
-        }
         
         # 检查每个厂商的工具是否可用
         for vendor in vendors_found:
-            if vendor in vendor_tools:
-                tool_cmd = vendor_tools[vendor]
+            if vendor in VENDOR_TOOLS:
+                tool_cmd = VENDOR_TOOLS[vendor]
                 tool_name = tool_cmd[0]
                 
                 # 检查工具是否存在
@@ -145,49 +157,50 @@ def get_pcie_topology():
     # Hexaflake: hxsmi topo
     
     try:
-        # 检查是否有NVIDIA GPU
-        if subprocess.run(['which', 'nvidia-smi'], capture_output=True).returncode == 0:
-            print("NVIDIA GPU Topology:")
-            result = subprocess.run(['nvidia-smi', 'topo', '-m'], capture_output=True, text=True, check=True)
-            print(result.stdout)
-            return
+        # 使用lspci获取GPU设备列表
+        gpu_devices = get_lspci_gpu_list()
         
-        # 检查是否有Huawei NPU
-        if subprocess.run(['which', 'npu-smi'], capture_output=True).returncode == 0:
-            print("Huawei NPU Topology:")
-            result = subprocess.run(['npu-smi', 'info', '-t'], capture_output=True, text=True, check=True)
-            print(result.stdout)
-            return
+        # 记录找到的厂商
+        vendors_found = set()
+        for line in gpu_devices:
+            for keyword in AI_CARD_KEYWORDS:
+                if keyword in line:
+                    # 记录厂商
+                    if "NVIDIA" in keyword or "10de:" in keyword:
+                        vendors_found.add("NVIDIA")
+                    elif "Huawei" in keyword or "19e5:" in keyword:
+                        vendors_found.add("Huawei")
+                    elif "Enrigin" in keyword or "1fbd:" in keyword:
+                        vendors_found.add("Enrigin")
+                    elif "MetaX" in keyword or "9999:" in keyword:
+                        vendors_found.add("MetaX")
+                    elif "Iluvatar" in keyword or "1e3e:" in keyword:
+                        vendors_found.add("Iluvatar")
+                    elif "Hexaflake" in keyword or "1faa:" in keyword:
+                        vendors_found.add("Hexaflake")
+                    break
         
-        # 检查是否有Enrigin GPU
-        if subprocess.run(['which', 'ersmi'], capture_output=True).returncode == 0:
-            print("Enrigin GPU Topology:")
-            result = subprocess.run(['ersmi', '--topo'], capture_output=True, text=True, check=True)
-            print(result.stdout)
-            return
+        # 检查每个厂商的工具是否可用并调用相应的topo命令
+        topo_executed = False
+        for vendor in vendors_found:
+            if vendor in VENDOR_TOPO_TOOLS:
+                tool_cmd = VENDOR_TOPO_TOOLS[vendor]
+                tool_name = tool_cmd[0]
+                
+                # 检查工具是否存在
+                if subprocess.run(['which', tool_name], capture_output=True).returncode == 0:
+                    print(f"{vendor} GPU Topology:")
+                    result = subprocess.run(tool_cmd, capture_output=True, text=True, check=True)
+                    print(result.stdout)
+                    topo_executed = True
+                else:
+                    print(f"Error: {vendor} AI card tool ({tool_name}) is not installed. Please install it first.")
+                    continue
         
-        # 检查是否有MetaX GPU
-        if subprocess.run(['which', 'mx-smi'], capture_output=True).returncode == 0:
-            print("MetaX GPU Topology:")
-            result = subprocess.run(['mx-smi', 'topo', '-m'], capture_output=True, text=True, check=True)
-            print(result.stdout)
-            return
-        
-        # 检查是否有Iluvatar GPU
-        if subprocess.run(['which', 'ixsmi'], capture_output=True).returncode == 0:
-            print("Iluvatar GPU Topology:")
-            result = subprocess.run(['ixsmi', 'topo', '-m'], capture_output=True, text=True, check=True)
-            print(result.stdout)
-            return
-        
-        # 检查是否有Hexaflake GPU
-        if subprocess.run(['which', 'hxsmi'], capture_output=True).returncode == 0:
-            print("Hexaflake GPU Topology:")
-            result = subprocess.run(['hxsmi', 'topo'], capture_output=True, text=True, check=True)
-            print(result.stdout)
-            return
-        
-        print("No supported AI card tools found.")
+        # 如果没有找到任何厂商的AI卡或没有执行任何topo命令
+        if not vendors_found or not topo_executed:
+            print("No supported AI card tools found or executed.")
+            sys.exit(1)
         
     except FileNotFoundError:
         print("Error: AI card tool not found. Please ensure the appropriate tool for your AI card is installed and in PATH.")
@@ -351,6 +364,19 @@ def trace_issues():
             return
         
         print("Tracing GPU PCIe issues:")
+        # 1. IOMMU/SMMU 状态
+        print("  IOMMU/SMMU Status:")
+        try:
+            # 检查/sys/class/iommu目录是否存在且非空
+            if os.path.exists("/sys/class/iommu") and os.listdir("/sys/class/iommu"):
+                # IOMMU已启用 - 对于AI服务器，这通常被视为错误
+                print("    Status: Enabled - AI servers typically require it to be disabled")
+            else:
+                # IOMMU已禁用 - 这是期望的状态
+                print("    Status: Disabled - Compliant with AI server configuration requirements")
+        except Exception as e:
+            print(f"    Error checking IOMMU status: {e}")
+        
         for line in gpu_devices:
             parts = line.split(' ', 1)  # 分割PCI地址和设备描述
             pci_addr = parts[0]
@@ -375,47 +401,81 @@ def trace_issues():
                 print(f"  Error getting device details: {e}")
                 continue
             
-            # 1. 链接状态信息
+            # 2. 链接状态信息
             print("  Link Status:")
             # 根设备链接能力与状态
             root_lnkcap = [line for line in root_result.stdout.split('\n') if "LnkCap:" in line]
             root_lnksta = [line for line in root_result.stdout.split('\n') if "LnkSta:" in line]
             if root_lnkcap and root_lnksta:
-                print(f"    Root LnkCap: {root_lnkcap[0].strip()}")
-                print(f"    Root LnkSta: {root_lnksta[0].strip()}")
+                # 提取Speed和Width信息
+                root_lnkcap_parts = root_lnkcap[0].split(",")
+                root_lnkcap_speed = next((part for part in root_lnkcap_parts if "Speed" in part), "")
+                root_lnkcap_width = next((part for part in root_lnkcap_parts if "Width" in part), "")
+                print(f"    Root LnkCap: {root_lnkcap_speed.strip()}, {root_lnkcap_width.strip()}")
+                
+                root_lnksta_parts = root_lnksta[0].split(",")
+                root_lnksta_speed = next((part for part in root_lnksta_parts if "Speed" in part), "").replace("LnkSta:", "").strip()
+                root_lnksta_width = next((part for part in root_lnksta_parts if "Width" in part), "").replace("LnkSta:", "").strip()
+                print(f"    Root LnkSta: {root_lnksta_speed}, {root_lnksta_width}")
             
             # AI卡设备链接能力与状态
             device_lnkcap = [line for line in device_result.stdout.split('\n') if "LnkCap:" in line]
             device_lnksta = [line for line in device_result.stdout.split('\n') if "LnkSta:" in line]
             if device_lnkcap and device_lnksta:
-                print(f"    Device LnkCap: {device_lnkcap[0].strip()}")
-                print(f"    Device LnkSta: {device_lnksta[0].strip()}")
+                # 提取Speed和Width信息
+                device_lnkcap_parts = device_lnkcap[0].split(",")
+                device_lnkcap_speed = next((part for part in device_lnkcap_parts if "Speed" in part), "")
+                device_lnkcap_width = next((part for part in device_lnkcap_parts if "Width" in part), "")
+                print(f"    Device LnkCap: {device_lnkcap_speed.strip()}, {device_lnkcap_width.strip()}")
+                
+                device_lnksta_parts = device_lnksta[0].split(",")
+                device_lnksta_speed = next((part for part in device_lnksta_parts if "Speed" in part), "").replace("LnkSta:", "").strip()
+                device_lnksta_width = next((part for part in device_lnksta_parts if "Width" in part), "").replace("LnkSta:", "").strip()
+                print(f"    Device LnkSta: {device_lnksta_speed}, {device_lnksta_width}")
             
-            # 2. MaxPayload信息
+            # 3. MaxPayload信息
             print("  MaxPayload:")
             # 根设备MaxPayload能力与状态
-            root_payload_lines = [line for line in root_result.stdout.split('\n') if "MaxPayload" in line]
-            for line in root_payload_lines:
-                print(f"    Root {line.strip()}")
+            root_devcap_lines = [line for line in root_result.stdout.split('\n') if "DevCap:" in line and "MaxPayload" in line]
+            root_maxpayload_lines = [line for line in root_result.stdout.split('\n') if "MaxPayload" in line and "DevCap:" not in line]
+            for line in root_devcap_lines:
+                # 提取MaxPayload信息
+                maxpayload_info = line.split("MaxPayload", 1)[1].split(",")[0].strip() if "MaxPayload" in line else line.strip()
+                print(f"    Root DevCap: MaxPayload {maxpayload_info}")
+            for line in root_maxpayload_lines:
+                # 提取MaxPayload信息
+                maxpayload_info = line.split("MaxPayload", 1)[1].split(",")[0].strip() if "MaxPayload" in line else line.strip()
+                print(f"    Root DevCtl: MaxPayload {maxpayload_info}")
             
             # AI卡设备MaxPayload能力与状态
-            device_payload_lines = [line for line in device_result.stdout.split('\n') if "MaxPayload" in line]
-            for line in device_payload_lines:
-                print(f"    Device {line.strip()}")
+            device_devcap_lines = [line for line in device_result.stdout.split('\n') if "DevCap:" in line and "MaxPayload" in line]
+            device_maxpayload_lines = [line for line in device_result.stdout.split('\n') if "MaxPayload" in line and "DevCap:" not in line]
+            for line in device_devcap_lines:
+                # 提取MaxPayload信息
+                maxpayload_info = line.split("MaxPayload", 1)[1].split(",")[0].strip() if "MaxPayload" in line else line.strip()
+                print(f"    Device DevCap: MaxPayload {maxpayload_info}")
+            for line in device_maxpayload_lines:
+                # 提取MaxPayload信息
+                maxpayload_info = line.split("MaxPayload", 1)[1].split(",")[0].strip() if "MaxPayload" in line else line.strip()
+                print(f"    Device DecCtl: MaxPayload {maxpayload_info}")
             
-            # 3. MaxReadReq信息
+            # 4. MaxReadReq信息
             print("  MaxReadReq:")
             # 根设备MaxReadReq能力与状态
-            root_readreq_lines = [line for line in root_result.stdout.split('\n') if "MaxReadReq" in line]
-            for line in root_readreq_lines:
-                print(f"    Root {line.strip()}")
+            root_maxreadreq_lines = [line for line in root_result.stdout.split('\n') if "MaxReadReq" in line]
+            for line in root_maxreadreq_lines:
+                # 提取MaxReadReq信息
+                maxreadreq_info = line.split("MaxReadReq", 1)[1].strip() if "MaxReadReq" in line else line.strip()
+                print(f"    Root MaxReadReq {maxreadreq_info}")
             
             # AI卡设备MaxReadReq能力与状态
-            device_readreq_lines = [line for line in device_result.stdout.split('\n') if "MaxReadReq" in line]
-            for line in device_readreq_lines:
-                print(f"    Device {line.strip()}")
+            device_maxreadreq_lines = [line for line in device_result.stdout.split('\n') if "MaxReadReq" in line]
+            for line in device_maxreadreq_lines:
+                # 提取MaxReadReq信息
+                maxreadreq_info = line.split("MaxReadReq", 1)[1].strip() if "MaxReadReq" in line else line.strip()
+                print(f"    Device MaxReadReq {maxreadreq_info}")
             
-            # 4. Completion Timeout信息
+            # 5. Completion Timeout信息
             print("  Completion Timeout:")
             # 根设备Completion Timeout
             root_timeout_lines = [line for line in root_result.stdout.split('\n') if "Completion Timeout:" in line]
@@ -427,19 +487,37 @@ def trace_issues():
             for line in device_timeout_lines:
                 print(f"    Device {line.strip()}")
             
-            # 5. ASPM信息
+            # 6. ASPM信息
             print("  ASPM:")
             # 根设备ASPM
-            root_aspm_lines = [line for line in root_result.stdout.split('\n') if "ASPM:" in line]
-            for line in root_aspm_lines:
-                print(f"    Root {line.strip()}")
+            root_aspm_config = [line for line in root_result.stdout.split('\n') if "LnkCtl:" in line and "ASPM" in line]
+            if root_aspm_config:
+                # 提取ASPM状态信息，删除"; RCB 64 bytes Disabled- CommClk-"等内容
+                aspm_info = root_aspm_config[0].strip()
+                # 使用正则表达式提取ASPM状态
+                match = re.search(r'(ASPM\s+[^;]+)', aspm_info)
+                if match:
+                    print(f"    Root {match.group(1)}")
+                else:
+                    print(f"    Root {aspm_info}")
+            else:
+                print("    Root 未找到相关信息")
             
             # AI卡设备ASPM
-            device_aspm_lines = [line for line in device_result.stdout.split('\n') if "ASPM:" in line]
-            for line in device_aspm_lines:
-                print(f"    Device {line.strip()}")
+            device_aspm_config = [line for line in device_result.stdout.split('\n') if "LnkCtl:" in line and "ASPM" in line]
+            if device_aspm_config:
+                # 提取ASPM状态信息，删除"; RCB 64 bytes Disabled- CommClk-"等内容
+                aspm_info = device_aspm_config[0].strip()
+                # 使用正则表达式提取ASPM状态
+                match = re.search(r'(ASPM\s+[^;]+)', aspm_info)
+                if match:
+                    print(f"    Device {match.group(1)}")
+                else:
+                    print(f"    Device {aspm_info}")
+            else:
+                print("    Device 未找到相关信息")
             
-            # 6. ACS状态
+            # 7. ACS状态
             print("  ACS:")
             try:
                 root_detail_result = subprocess.run(['lspci', '-vvs', root_port], capture_output=True, text=True, check=True)
@@ -455,10 +533,12 @@ def trace_issues():
             except subprocess.CalledProcessError as e:
                 print(f"    Error checking ACS: {e}")
             
-            # 7. PCIe扩展功能
+            # 8. PCIe扩展功能
             print("  PCIe Extend Capability:")
             # 检查整个链路上所有设备的Extended Tag Field状态
             get_extend_status(pci_addr)
+            
+
         
 
     
