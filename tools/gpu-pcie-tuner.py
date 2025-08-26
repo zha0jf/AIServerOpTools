@@ -519,19 +519,27 @@ def trace_issues():
             
             # 7. ACS状态
             print("  ACS:")
-            try:
-                root_detail_result = subprocess.run(['lspci', '-vvs', root_port], capture_output=True, text=True, check=True)
-                acs_lines = [line for line in root_detail_result.stdout.split('\n') if "ACSCtl:" in line]
-                if acs_lines:
-                    acs_line = acs_lines[0]
-                    if "+" in acs_line:
-                        print(f"    Status: Enabled (via root port {root_port})")
-                    else:
-                        print(f"    Status: Disabled (via root port {root_port})")
+            # 获取从设备到根端口的路径
+            path = get_pci_path_to_root(pci_addr)
+            if not path:
+                print("    Error: Unable to get PCIe path.")
+            else:
+                acs_enabled_ports = []
+                for port in path:
+                    try:
+                        port_detail_result = subprocess.run(['lspci', '-vvs', port], capture_output=True, text=True, check=True)
+                        acs_lines = [line for line in port_detail_result.stdout.split('\n') if "ACSCtl:" in line]
+                        if acs_lines:
+                            acs_line = acs_lines[0]
+                            if "+" in acs_line:
+                                acs_enabled_ports.append(port)
+                    except subprocess.CalledProcessError as e:
+                        print(f"    Error checking ACS for port {port}: {e}")
+                
+                if acs_enabled_ports:
+                    print(f"    Status: Enabled on ports: {', '.join(acs_enabled_ports)}")
                 else:
-                    print(f"    Status: Not supported or not found (via root port {root_port})")
-            except subprocess.CalledProcessError as e:
-                print(f"    Error checking ACS: {e}")
+                    print("    Status: Disabled on all ports in the path")
             
             # 8. PCIe扩展功能
             print("  PCIe Extend Capability:")
@@ -646,7 +654,6 @@ def enable_acs():
     """启用ACS"""
     print("Enabling ACS for all GPUs...")
     print("Note: This operation requires root privileges and direct hardware access.")
-    print("Implementation would involve using setpci to modify PCIe configuration space.")
     
     try:
         # 获取GPU列表
@@ -659,10 +666,17 @@ def enable_acs():
             print("No GPU devices found.")
             return
         
+        success = True
         for pci_addr in gpu_devices:
-            # 启用ACS的命令 (示例，实际实现需要根据硬件调整)
-            # setpci -v -s $pci_addr CAP_ACS+6.w=0x000f
-            print(f"  Enabling ACS for {pci_addr} (would use setpci in actual implementation)")
+            print(f"  Enabling ACS for {pci_addr}")
+            # 调用configure_acs_for_upstream_ports函数启用ACS
+            if not configure_acs_for_upstream_ports(pci_addr, 'enable'):
+                success = False
+        
+        if success:
+            print("ACS enabling completed successfully.")
+        else:
+            print("ACS enabling completed with some errors.")
         
     except FileNotFoundError:
         print("Error: 'lspci' command not found. Please ensure it's installed and in PATH.")
@@ -676,7 +690,6 @@ def disable_acs():
     """禁用ACS"""
     print("Disabling ACS for all GPUs...")
     print("Note: This operation requires root privileges and direct hardware access.")
-    print("Implementation would involve using setpci to modify PCIe configuration space.")
     
     try:
         # 获取GPU列表
@@ -689,10 +702,17 @@ def disable_acs():
             print("No GPU devices found.")
             return
         
+        success = True
         for pci_addr in gpu_devices:
-            # 禁用ACS的命令 (示例，实际实现需要根据硬件调整)
-            # setpci -v -s $pci_addr CAP_ACS+6.w=0x0000
-            print(f"  Disabling ACS for {pci_addr} (would use setpci in actual implementation)")
+            print(f"  Disabling ACS for {pci_addr}")
+            # 调用configure_acs_for_upstream_ports函数禁用ACS
+            if not configure_acs_for_upstream_ports(pci_addr, 'disable'):
+                success = False
+        
+        if success:
+            print("ACS disabling completed successfully.")
+        else:
+            print("ACS disabling completed with some errors.")
         
     except FileNotFoundError:
         print("Error: 'lspci' command not found. Please ensure it's installed and in PATH.")
@@ -824,6 +844,71 @@ def set_completion_timeout_disable(value):
     except subprocess.CalledProcessError as e:
         print(f"Error executing lspci command: {e}")
         sys.exit(1)
+
+
+def configure_acs_for_upstream_ports(pci_addr: str, target_state: str) -> bool:
+    """
+    配置指定设备PCIE链路上的所有上行PCIE端口的ACS为目标状态
+    
+    Args:
+        pci_addr: 设备PCIe地址
+        target_state: ACS目标状态 ('enable' 或 'disable')
+    
+    Returns:
+        bool: 配置是否成功
+    """
+    # 1. 判断pcie地址是否为有效地址
+    if not is_pci_bdf(pci_addr):
+        print(f"Error: Input '{pci_addr}' is not a valid BDF format.")
+        return False
+    
+    # 2. 获取PCIE链路
+    path = get_pci_path_to_root(pci_addr)
+    if not path:
+        print(f"Error: Could not get PCIe path for device {pci_addr}")
+        return False
+    
+    # 3. 针对链路上的每个设备
+    success = True
+    for i, bdf in enumerate(path):
+        # 跳过端设备本身
+        if i == 0:
+            continue
+            
+        # 跳过根设备
+        if i == len(path) - 1:
+            continue
+            
+        # 4. 直接检查设备是否包含"ACSCtl:"关键字
+        try:
+            # 使用lspci -vvs PCIE地址获取设备详细信息
+            acs_check = subprocess.run(['lspci', '-vvs', bdf], capture_output=True, text=True, check=True)
+            # 检查输出中是否包含ACSCtl关键字
+            if "ACSCtl:" in acs_check.stdout:
+                # 具有ACSCtl关键字，配置ACS功能
+                print(f"  Configuring upstream port {bdf} for ACS {target_state}")
+                
+                # 确定目标值
+                target_value = 0x1d if target_state.lower() == 'enable' else 0x00
+                
+                # 使用setpci配置ACS
+                hex_value = f"{target_value:02x}"
+                command = ['sudo', 'setpci', '-s', bdf, f'ECAP_ACS+6.b={hex_value}']
+                try:
+                    subprocess.run(command, capture_output=True, text=True, check=True)
+                    print(f"    Successfully set ACS to {hex_value} for {bdf}")
+                except subprocess.CalledProcessError as e:
+                    print(f"    Failed to set ACS for {bdf}: {e}")
+                    success = False
+            else:
+                # 没有ACSCtl关键字，不配置
+                print(f"    Device {bdf} does not support ACS, skipping.")
+        except subprocess.CalledProcessError as e:
+            print(f"    Error checking ACS capability for {bdf}: {e}")
+            success = False
+    
+    # 5. 返回配置状态
+    return success
 
 
 def main():
