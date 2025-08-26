@@ -435,29 +435,32 @@ def trace_issues():
             
             # 3. MaxPayload信息
             print("  MaxPayload:")
-            # 根设备MaxPayload能力与状态
-            root_devcap_lines = [line for line in root_result.stdout.split('\n') if "DevCap:" in line and "MaxPayload" in line]
-            root_maxpayload_lines = [line for line in root_result.stdout.split('\n') if "MaxPayload" in line and "DevCap:" not in line]
-            for line in root_devcap_lines:
-                # 提取MaxPayload信息
-                maxpayload_info = line.split("MaxPayload", 1)[1].split(",")[0].strip() if "MaxPayload" in line else line.strip()
-                print(f"    Root DevCap: MaxPayload {maxpayload_info}")
-            for line in root_maxpayload_lines:
-                # 提取MaxPayload信息
-                maxpayload_info = line.split("MaxPayload", 1)[1].split(",")[0].strip() if "MaxPayload" in line else line.strip()
-                print(f"    Root DevCtl: MaxPayload {maxpayload_info}")
-            
-            # AI卡设备MaxPayload能力与状态
-            device_devcap_lines = [line for line in device_result.stdout.split('\n') if "DevCap:" in line and "MaxPayload" in line]
-            device_maxpayload_lines = [line for line in device_result.stdout.split('\n') if "MaxPayload" in line and "DevCap:" not in line]
-            for line in device_devcap_lines:
-                # 提取MaxPayload信息
-                maxpayload_info = line.split("MaxPayload", 1)[1].split(",")[0].strip() if "MaxPayload" in line else line.strip()
-                print(f"    Device DevCap: MaxPayload {maxpayload_info}")
-            for line in device_maxpayload_lines:
-                # 提取MaxPayload信息
-                maxpayload_info = line.split("MaxPayload", 1)[1].split(",")[0].strip() if "MaxPayload" in line else line.strip()
-                print(f"    Device DecCtl: MaxPayload {maxpayload_info}")
+            # 获取从设备到根端口的路径
+            path = get_pci_path_to_root(pci_addr)
+            if not path:
+                print("    Error: Unable to get PCIe path.")
+            else:
+                # 遍历路径上所有端口并获取MaxPayload信息
+                for port in path:
+                    try:
+                        port_detail_result = subprocess.run(['lspci', '-vvs', port], capture_output=True, text=True, check=True)
+                        # 获取设备MaxPayload能力与状态
+                        devcap_lines = [line for line in port_detail_result.stdout.split('\n') if "DevCap:" in line and "MaxPayload" in line]
+                        maxpayload_lines = [line for line in port_detail_result.stdout.split('\n') if "MaxPayload" in line and "DevCap:" not in line]
+
+                        # 输出设备信息
+                        print(f"    Port {port}:")
+                        for line in devcap_lines:
+                            # 提取MaxPayload信息
+                            maxpayload_info = line.split("MaxPayload", 1)[1].split(",")[0].strip() if "MaxPayload" in line else line.strip()
+                            print(f"      DevCap: MaxPayload {maxpayload_info}")
+                        for line in maxpayload_lines:
+                            # 提取MaxPayload信息
+                            maxpayload_info = line.split("MaxPayload", 1)[1].split(",")[0].strip() if "MaxPayload" in line else line.strip()
+                            print(f"      DevCtl: MaxPayload {maxpayload_info}")
+                    except subprocess.CalledProcessError as e:
+                        print(f"    Error checking MaxPayload for port {port}: {e}")
+
             
             # 4. MaxReadReq信息
             print("  MaxReadReq:")
@@ -763,8 +766,9 @@ def set_max_payload(value):
 
 
 def set_max_read_req(value):
-    """设置GPU MaxReadReq"""
-    # 值映射表
+    """为所有 GPU 设置 MaxReadReq"""
+
+    # 值映射表 (PCIe Device Control [14:12])
     value_map = {
         '0': '128B',
         '1': '256B',
@@ -773,36 +777,46 @@ def set_max_read_req(value):
         '4': '2048B',
         '5': '4096B'
     }
-    
+
     if value not in value_map:
         print(f"Invalid value for MaxReadReq: {value}. Valid values are 0-5.")
         return
-    
-    print(f"Setting GPU MaxReadReq to {value_map[value]}...")
-    print("Note: This operation requires root privileges and direct hardware access.")
-    print("Implementation would involve using setpci to modify PCIe configuration space.")
-    
+
+    print(f"Setting GPU MaxReadReq to {value_map[value]}... (requires root)")
+
     try:
-        # 获取GPU列表
+        # 获取 GPU PCIe 地址列表
         gpu_lines = get_lspci_gpu_list()
-        gpu_devices = []
-        for line in gpu_lines:
-            gpu_devices.append(line.split()[0])  # 获取PCI地址
-        
+        gpu_devices = [line.split()[0] for line in gpu_lines]
+
         if not gpu_devices:
             print("No GPU devices found.")
             return
-        
+
         for pci_addr in gpu_devices:
-            # 设置MaxReadReq的命令 (示例，实际实现需要根据硬件调整)
-            # setpci -v -s $pci_addr CAP_EXP+12.w=<value>
-            print(f"  Setting MaxReadReq for {pci_addr} to {value_map[value]} (would use setpci in actual implementation)")
-            
+            # 读出当前 Device Control (CAP_EXP+0x08.w)
+            reg_hex = subprocess.check_output(
+                ["setpci", "-s", pci_addr, "CAP_EXP+8.w"], text=True
+            ).strip()
+            reg_val = int(reg_hex, 16)
+
+            # 清除 MRRS 位 (14:12)
+            reg_new = (reg_val & 0x8FFF) | (int(value) << 12)
+
+            # 写回新值
+            subprocess.run(
+                ["setpci", "-s", pci_addr, f"CAP_EXP+8.w={reg_new:04x}"],
+                check=True
+            )
+
+            print(f"  {pci_addr}: MRRS {value_map[value]} "
+                  f"(reg {reg_val:04x} -> {reg_new:04x})")
+
     except FileNotFoundError:
-        print("Error: 'lspci' command not found. Please ensure it's installed and in PATH.")
+        print("Error: 'setpci' not found. Please install pciutils.")
         sys.exit(1)
     except subprocess.CalledProcessError as e:
-        print(f"Error executing lspci command: {e}")
+        print(f"Error executing setpci: {e}")
         sys.exit(1)
 
 
