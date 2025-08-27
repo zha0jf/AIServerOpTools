@@ -725,46 +725,6 @@ def disable_acs():
         sys.exit(1)
 
 
-def set_max_payload(value):
-    """设置GPU MaxPayload"""
-    # 值映射表
-    value_map = {
-        '0': '128B',
-        '1': '256B',
-        '2': '512B',
-        '3': '1024B',
-        '4': '2048B',
-        '5': '4096B'
-    }
-    
-    if value not in value_map:
-        print(f"Invalid value for MaxPayload: {value}. Valid values are 0-5.")
-        return
-    
-    print(f"Setting GPU MaxPayload to {value_map[value]}...")
-    print("Note: This operation requires root privileges and direct hardware access.")
-    print("Implementation would involve using setpci to modify PCIe configuration space.")
-    
-    try:
-        # 获取GPU列表
-        gpu_lines = get_lspci_gpu_list()
-        gpu_devices = []
-        for line in gpu_lines:
-            gpu_devices.append(line.split()[0])  # 获取PCI地址
-        
-        if not gpu_devices:
-            print("No GPU devices found.")
-            return
-        
-        for pci_addr in gpu_devices:
-            # 设置MaxPayload的命令 (示例，实际实现需要根据硬件调整)
-            # setpci -v -s $pci_addr CAP_EXP+10.w=<value>
-            print(f"  Setting MaxPayload for {pci_addr} to {value_map[value]} (would use setpci in actual implementation)")
-            
-    except FileNotFoundError:
-        print("Error: 'lspci' command not found. Please ensure it's installed and in PATH.")
-
-
 def set_max_read_req(value):
     """为所有 GPU 设置 MaxReadReq"""
 
@@ -925,6 +885,152 @@ def configure_acs_for_upstream_ports(pci_addr: str, target_state: str) -> bool:
     return success
 
 
+# ===== 工具/映射 ===== 
+_MPS_CODE_TO_BYTES = {0:128, 1:256, 2:512, 3:1024, 4:2048, 5:4096} 
+_BYTES_TO_MPS_CODE = {v:k for k, v in _MPS_CODE_TO_BYTES.items()} 
+
+def _has_pcie_cap(bdf: str) -> bool: 
+    """ 
+    通过读取 PCIe Capability 的某个寄存器来判断设备是否具备 PCIe Cap。 
+    读 CAP_EXP+2.w（PCIe Capabilities Register）非 0 视为存在。 
+    """ 
+    v = _run_setpci_read(bdf, "CAP_EXP+2.w") 
+    return v is not None and v != 0 
+
+def _get_mps_cap_code(bdf: str) -> Optional[int]: 
+    """ 
+    读取设备支持的最大 MPS 的编码值 (Device Capabilities @ CAP_EXP+0x04.l, bits[2:0]) 
+    返回编码 0..5（对应 128B..4096B）；无效则返回 None。 
+    """ 
+    if not _has_pcie_cap(bdf): 
+        return None 
+    reg = _run_setpci_read(bdf, "CAP_EXP+4.l") 
+    if reg is None or reg == 0: 
+        return None 
+    return reg & 0x7  # bits[2:0] 
+
+def _get_mps_current_code(bdf: str) -> Optional[int]: 
+    """ 
+    读取设备当前配置的 MPS 编码值 (Device Control @ CAP_EXP+0x08.w, bits[7:5]) 
+    """ 
+    if not _has_pcie_cap(bdf): 
+        return None 
+    reg = _run_setpci_read(bdf, "CAP_EXP+8.w") 
+    if reg is None: 
+        return None 
+    return (reg >> 5) & 0x7 
+
+def _set_mps_code(bdf: str, code: int) -> bool: 
+    """ 
+    设置设备的 MPS 编码值 (Device Control @ CAP_EXP+0x08.w, bits[7:5])，并校验写回。 
+    """ 
+    if not (0 <= code <= 5): 
+        return False 
+    if not _has_pcie_cap(bdf): 
+        return False 
+
+    reg = _run_setpci_read(bdf, "CAP_EXP+8.w") 
+    if reg is None: 
+        return False 
+
+    new_val = (reg & ~(0x7 << 5)) | (code << 5) 
+    if not _run_setpci_write(bdf, "CAP_EXP+8.w", new_val): 
+        return False 
+
+    # 读回校验 
+    rb = _get_mps_current_code(bdf) 
+    return rb == code 
+
+# ===== 主函数：为所有 GPU 配置 MPS ===== 
+def set_max_payload(value_code: int) -> int: 
+    """ 
+    为系统中所有 GPU 及其链路上的所有 PCIe 设备设置 MaxPayload。 
+    - value_code: 0..5，分别为 128/256/512/1024/2048/4096B 
+    规则： 
+      1) 在配置前检查该 GPU 的整条链路(仅包含具备 PCIe Cap 的设备)之 MPS Cap 最小值； 
+      2) 如果请求值 > 链路最小 Cap，则跳过该 GPU（不做任何写入），报告错误； 
+      3) 否则将链路上的每个设备的 MPS 都设置为请求值。 
+    返回：0 全部成功；非 0 表示存在失败或被跳过的 GPU。 
+    """ 
+    # 兼容传入字符串 
+    try: 
+        code = int(value_code) 
+    except Exception: 
+        print(f"Invalid MPS code: {value_code}. Valid: 0..5") 
+        return 2 
+
+    if code not in _MPS_CODE_TO_BYTES: 
+        print(f"Invalid MPS code: {value_code}. Valid: 0..5") 
+        return 2 
+
+    req_bytes = _MPS_CODE_TO_BYTES[code] 
+    print(f"Setting GPU MaxPayload to {req_bytes} bytes... (requires root)") 
+
+    gpu_lines = get_lspci_gpu_list()  # 已实现：返回包含 BDF 的字符串行 
+    gpu_bdfs = [line.split()[0] for line in gpu_lines if line.strip()] 
+    if not gpu_bdfs: 
+        print("No GPU devices found.") 
+        return 1 
+
+    overall_ok = True 
+
+    for gpu in gpu_bdfs: 
+        print(f"\nConfiguring GPU {gpu}:") 
+        path: Optional[List[str]] = get_pci_path_to_root(gpu)  # 已实现 
+        if not path: 
+            print(f"  Error: cannot get PCIe path for {gpu}") 
+            overall_ok = False 
+            continue 
+
+        # 仅保留具备 PCIe 能力的设备（排除 Host Bridge 等没有 PCIe Cap 的 BDF） 
+        devs = [d for d in path if _has_pcie_cap(d)] 
+        if not devs: 
+            print("  Error: no PCIe-capable devices found on the path; skip.") 
+            overall_ok = False 
+            continue 
+
+        # 读取链路上每个设备的 MPS Cap（编码值），求最小 
+        caps: List[int] = [] 
+        for d in devs: 
+            cap_code = _get_mps_cap_code(d) 
+            if cap_code is None: 
+                print(f"  Warning: skip {d} (no valid PCIe Cap or read failed)") 
+                continue 
+            caps.append(cap_code) 
+
+        if not caps: 
+            print("  Error: could not read MPS Cap on any device in the path; skip.") 
+            overall_ok = False 
+            continue 
+
+        min_cap_code = min(caps) 
+        link_max_bytes = _MPS_CODE_TO_BYTES[min_cap_code] 
+        print(f"  Link supports maximum MaxPayload={link_max_bytes}") 
+
+        # 若请求值超过链路可支持的最大值：直接跳过该 GPU，不做写入 
+        if code > min_cap_code: 
+            print(f"  Requested {req_bytes}B > link max {link_max_bytes}B; " 
+                  f"skip configuration for this GPU.") 
+            overall_ok = False 
+            continue 
+
+        # 正式配置：对链路上所有设备写入相同的 MPS 
+        print("  Writing MPS on devices:") 
+        ok_all = True 
+        for d in devs: 
+            ok = _set_mps_code(d, code) 
+            cur_code = _get_mps_current_code(d) 
+            cur_bytes = _MPS_CODE_TO_BYTES[cur_code] if cur_code is not None else None 
+            if ok: 
+                print(f"    {d}: OK, current MaxPayload={cur_bytes}") 
+            else: 
+                print(f"    {d}: FAILED, current MaxPayload={cur_bytes}") 
+                ok_all = False 
+
+        overall_ok = overall_ok and ok_all 
+
+    return 0 if overall_ok else 2
+
 def main():
     parser = argparse.ArgumentParser(description="A tool that can diagnose and resolve issues of p2p, d2h and h2d blockage or slowdown.")
     parser.add_argument('--topo', action='store_true', help='AI card P2P topology.')
@@ -933,7 +1039,7 @@ def main():
     parser.add_argument('--enable-acs', action='store_true', help='Enable ACS.')
     parser.add_argument('--disable-acs', action='store_true', help='Disable ACS.')
     parser.add_argument('--enable-extend', action='store_true', help='Enable the PCIe extend capability.')
-    parser.add_argument('--set-mps', type=str, help='Set GPU MaxPayload.(E.g., 0: 128B; 1: 256B.)')
+    parser.add_argument('--set-mps', type=str, help='Set GPU MaxPayload.(E.g., 0: 128B; 1: 256B; 2: 512B; 3: 1024B; 4: 2048B; 5: 4096B.)')
     parser.add_argument('--set-mrrs', type=str, help='Set GPU MaxReadReq.(E.g., 0: 128B; 1: 256B; 2: 512B; 3: 1024B; 4: 2048B; 5: 4096B.)')
     parser.add_argument('--set-timeoutDis', type=str, help='Set GPU Completion Timeout Disable.(E.g., 0: disable; 1: enable.)')
     parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.0')
@@ -963,4 +1069,4 @@ def main():
         parser.print_help()
 
 if __name__ == "__main__":
-    main()
+    main()    
