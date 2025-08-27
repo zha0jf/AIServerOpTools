@@ -8,6 +8,71 @@ import argparse
 import re
 from typing import List, Optional
 
+
+def parse_completion_timeout(lines, label):
+    """
+    解析 lspci 输出的 Completion Timeout 信息，返回设备能力和当前配置
+    """
+    devcap2 = None
+    devctl2 = None
+
+    for line in lines:
+        if "DevCap2" in line and "Completion Timeout" in line:
+            devcap2 = line.strip()
+        elif "DevCtl2" in line and "Completion Timeout" in line:
+            devctl2 = line.strip()
+
+    # ---------- 设备能力 ----------
+    capability = "Unknown"
+    if devcap2:
+        if "Not Supported" in devcap2:
+            capability = "Not support adjusting CTO Range"
+        else:
+            # 尝试提取 Range AB / Range XY
+            match = re.search(r"Range\s+[A-Z]+", devcap2)
+            if match:
+                capability = f"Support {match.group(0)}"
+            else:
+                capability = "CTO Supported"
+
+        if "TimeoutDis+" in devcap2:
+            capability += ", TimeoutDis+ (support disable)"
+        elif "TimeoutDis-" in devcap2:
+            capability += ", TimeoutDis- (cannot disable)"
+
+    # ---------- 当前配置 ----------
+    status = "Unknown"
+    range_info = None
+    if devctl2:
+        if "TimeoutDis+" in devctl2:
+            status = "Disabled"
+        elif "TimeoutDis-" in devctl2:
+            status = "Enabled"
+
+        # 更强健的匹配，支持 us/ms/s
+        match = re.search(r"(\d+\s*(us|ms|s)\s*to\s*\d+\s*(us|ms|s))", devctl2)
+        if match:
+            range_info = match.group(1)
+
+    if status == "Disabled":
+        current_cfg = "CTO Disabled (time range ignored)"
+    elif status == "Enabled":
+        if range_info:
+            current_cfg = f"CTO Enabled, Range = {range_info}"
+        else:
+            current_cfg = "CTO Enabled"
+    else:
+        current_cfg = "CTO status Unknown"
+
+    return label, capability, current_cfg
+
+def print_completion_timeout(result, label):
+    lines = result.stdout.splitlines()
+    label, capability, current_cfg = parse_completion_timeout(lines, label)
+    print(f"{label}:")
+    print(f"  Capability : {capability}")
+    print(f"  CurrentCfg : {current_cfg}")
+
 # 定义AI卡关键字
 AI_CARD_KEYWORDS = [
         "NVIDIA",
@@ -481,14 +546,18 @@ def trace_issues():
             # 5. Completion Timeout信息
             print("  Completion Timeout:")
             # 根设备Completion Timeout
-            root_timeout_lines = [line for line in root_result.stdout.split('\n') if "Completion Timeout:" in line]
-            for line in root_timeout_lines:
-                print(f"    Root {line.strip()}")
+            root_lines = root_result.stdout.splitlines()
+            root_label, root_capability, root_current_cfg = parse_completion_timeout(root_lines, "Root")
+            print(f"    {root_label}:")
+            print(f"      Capability : {root_capability}")
+            print(f"      CurrentCfg : {root_current_cfg}")
             
             # AI卡设备Completion Timeout
-            device_timeout_lines = [line for line in device_result.stdout.split('\n') if "Completion Timeout:" in line]
-            for line in device_timeout_lines:
-                print(f"    Device {line.strip()}")
+            device_lines = device_result.stdout.splitlines()
+            device_label, device_capability, device_current_cfg = parse_completion_timeout(device_lines, "Device")
+            print(f"    {device_label}:")
+            print(f"      Capability : {device_capability}")
+            print(f"      CurrentCfg : {device_current_cfg}")
             
             # 6. ASPM信息
             print("  ASPM:")
@@ -706,7 +775,7 @@ def disable_acs():
             return
         
         success = True
-        for pci_addr in gpu_devices:
+        for pci_addr in gpu_lines:
             print(f"  Disabling ACS for {pci_addr}")
             # 调用configure_acs_for_upstream_ports函数禁用ACS
             if not configure_acs_for_upstream_ports(pci_addr, 'disable'):
@@ -1069,4 +1138,4 @@ def main():
         parser.print_help()
 
 if __name__ == "__main__":
-    main()    
+    main()
