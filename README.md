@@ -86,6 +86,9 @@ sudo python3 ./tools/gpu-pcie-tuner.py --set-mrrs 2
 
 # Set GPU Completion Timeout Disable to enable
 sudo python3 ./tools/gpu-pcie-tuner.py --set-timeoutDis 1
+
+# Set GPU Completion Timeout Range to A (50 µs – 100 µs)
+sudo python3 ./tools/gpu-pcie-tuner.py --set-timeoutRange A_1
 ```
 
 ## Contribution Guide
