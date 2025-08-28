@@ -283,37 +283,17 @@ def is_pci_bdf(bdf):
 def get_root_port(pci_addr):
     """根据AI卡的PCIe地址获取其接入的PCIe根设备地址"""
     try:
-        device_symlink = f"/sys/bus/pci/devices/{pci_addr}"
+        # 使用 get_pci_path_to_root 获取从端设备到根端口的完整路径
+        path = get_pci_path_to_root(pci_addr)
         
-        # 检查设备是否存在
-        if not os.path.islink(device_symlink):
-            print(f"Error: Device '{pci_addr}' does not exist.", file=sys.stderr)
+        # 检查路径是否存在且非空
+        if not path:
+            print(f"Error: Could not determine PCIe path for '{pci_addr}'")
             return None
         
-        # 1. 获取设备的真实物理路径
-        current_path = os.path.realpath(device_symlink)
-        last_pci_device = os.path.basename(current_path)
-        
-        # 2. 循环向上遍历目录
-        while True:
-            parent_path = os.path.dirname(current_path)
-            
-            # 如果到达了根目录或不再是pci设备目录，则停止
-            if parent_path == "/" or not os.path.isdir(parent_path):
-                break
-            
-            parent_name = os.path.basename(parent_path)
-            
-            # 3. 检查父目录名是否是PCI BDF格式
-            if is_pci_bdf(parent_name):
-                # 如果是，更新最后已知的PCI设备并继续向上
-                last_pci_device = parent_name
-                current_path = parent_path
-            else:
-                # 如果父目录不再是PCI设备，则我们已经找到了根端口
-                break
-        
-        return last_pci_device
+        # 根端口是路径中的最后一个设备
+        root_port = path[-1]
+        return root_port
     except Exception as e:
         print(f"Unexpected error getting root port for {pci_addr}: {e}")
         return None
@@ -849,38 +829,66 @@ def set_max_read_req(value):
         sys.exit(1)
 
 
-def set_completion_timeout_disable(value):
-    """设置GPU Completion Timeout Disable"""
-    # 值映射表
+def set_completion_timeout_disable(value): 
+    """设置 GPU 以及其 Root Port 的 Completion Timeout Disable 位"""
+
+    # 映射表：0=disable CTO disable（即启用CTO功能），1=enable CTO disable（即禁用CTO功能）
     value_map = {
-        '0': 'disable',
-        '1': 'enable'
+        '0': 'CTO Enabled (TimeoutDis-)',
+        '1': 'CTO Disabled (TimeoutDis+)'
     }
-    
+
     if value not in value_map:
-        print(f"Invalid value for Completion Timeout Disable: {value}. Valid values are 0-1.")
+        print(f"Invalid value for Completion Timeout Disable: {value}. Valid values are 0 or 1.")
         return
-    
-    print(f"Setting GPU Completion Timeout Disable to {value_map[value]}...")
-    print("Note: This operation requires root privileges and direct hardware access.")
-    print("Implementation would involve using setpci to modify PCIe configuration space.")
-    
+
+    target_bit = int(value)  # 0 or 1
+
+    print(f"Setting Device and RC Completion Timeout Disable -> {value_map[value]}")
+    print("Note: This operation requires root privileges and direct hardware access.\n")
+
     try:
-        # 获取GPU列表
+        # 获取 GPU 列表
         gpu_lines = get_lspci_gpu_list()
-        gpu_devices = []
-        for line in gpu_lines:
-            gpu_devices.append(line.split()[0])  # 获取PCI地址
-        
+        gpu_devices = [line.split()[0] for line in gpu_lines]
+
         if not gpu_devices:
             print("No GPU devices found.")
             return
-        
-        for pci_addr in gpu_devices:
-            # 设置Completion Timeout Disable的命令 (示例，实际实现需要根据硬件调整)
-            # setpci -v -s $pci_addr CAP_EXP+14.w=<value>
-            print(f"  Setting Completion Timeout Disable for {pci_addr} to {value_map[value]} (would use setpci in actual implementation)")
-            
+
+        for gpu_bdf in gpu_devices:
+            print(f"Processing GPU {gpu_bdf} ...")
+
+            # 找到 RC
+            rc_bdf = get_root_port(gpu_bdf)
+            if not rc_bdf:
+                print(f"  [Skip] Cannot find Root Port for GPU {gpu_bdf}")
+                continue
+
+            # 遍历 GPU 和 RC
+            for dev_name, bdf in [("GPU", gpu_bdf), ("RC", rc_bdf)]:
+                reg = "CAP_EXP+28.w"
+
+                old_val = _run_setpci_read(bdf, reg)
+                if old_val is None:
+                    print(f"  [Error] Failed to read {dev_name} ({bdf}) register {reg}")
+                    continue
+
+                # 修改 bit4
+                new_val = (old_val & ~(1 << 4)) | (target_bit << 4)
+
+                if new_val == old_val:
+                    print(f"  {dev_name} {bdf}: Already {value_map[value]}")
+                    continue
+
+                ok = _run_setpci_write(bdf, reg, new_val)
+                if ok:
+                    print(f"  {dev_name} {bdf}: Set {value_map[value]} (reg {reg}, old=0x{old_val:04x}, new=0x{new_val:04x})")
+                else:
+                    print(f"  [Error] Failed to write {dev_name} ({bdf}) register {reg}")
+
+            print("")  # 换行分隔设备
+
     except FileNotFoundError:
         print("Error: 'lspci' command not found. Please ensure it's installed and in PATH.")
         sys.exit(1)
@@ -888,6 +896,119 @@ def set_completion_timeout_disable(value):
         print(f"Error executing lspci command: {e}")
         sys.exit(1)
 
+def set_completion_timeout_range(value):
+    """
+    根据PCIe Gen5规范设置GPU和其上游根端口（Root Port）的Completion Timeout Range。
+    此版本使用 A_1, A_2 等索引格式作为输入参数。
+    """
+    # 范围描述映射表，用于打印英文信息
+    range_description_map = {
+        'Default': 'Default Range (40ms~50ms@FM, 50us~50ms@NFM)',
+        'A_1': 'Range A (50us~100us)',
+        'A_2': 'Range A (1ms~10ms)',
+        'B_1': 'Range B (16ms~55ms)',
+        'B_2': 'Range B (65ms~210ms)',
+        'C_1': 'Range C (260ms~900ms)',
+        'C_2': 'Range C (1s~3.5s)',
+        'D_1': 'Range D (4s~13s)',
+        'D_2': 'Range D (17s~64s)',
+    }
+
+    # Device Control 2 寄存器 (CAP_EXP+28h) 中 Completion Timeout Value 字段的正确编码值
+    # 这是根据规范需要写入寄存器的确切值
+    register_value_map = {
+        'Default': 0b0000,
+        'A_1':     0b0001,
+        'A_2':     0b0010,
+        'B_1':     0b0101,
+        'B_2':     0b0110,
+        'C_1':     0b1001,
+        'C_2':     0b1010,
+        'D_1':     0b1101,
+        'D_2':     0b1110,
+    }
+
+    # Device Capabilities 2 寄存器中，Completion Timeout Ranges Supported 字段的位定义
+    # 用于检查设备是否支持某个主范围 (A, B, C, D)
+    support_bit_map = {
+        'A': 0b0001,  # Bit 0 for Range A
+        'B': 0b0010,  # Bit 1 for Range B
+        'C': 0b0100,  # Bit 2 for Range C
+        'D': 0b1000   # Bit 3 for Range D
+    }
+
+    if value not in register_value_map:
+        print(f"Error: Invalid value '{value}' for Completion Timeout Range.")
+        print("Valid values are: " + ", ".join(sorted(register_value_map.keys())))
+        return
+
+    print(f"Preparing to set Completion Timeout Range to: {range_description_map[value]}...")
+    print("Note: This operation requires root privileges.")
+
+    try:
+        gpu_lines = get_lspci_gpu_list()
+        gpu_devices = [line.split()[0] for line in gpu_lines]
+
+        if not gpu_devices:
+            print("No GPU devices found.")
+            return
+
+        for pci_addr in gpu_devices:
+            print(f"\nProcessing GPU {pci_addr} and its Root Port...")
+            root_port = get_root_port(pci_addr)
+            
+            devices_to_configure = []
+            if root_port:
+                devices_to_configure.append((root_port, "Root Port"))
+            devices_to_configure.append((pci_addr, "GPU Device"))
+
+            for dev, dev_type in devices_to_configure:
+                # 步骤1: 读取 Device Capabilities 2 寄存器，判断是否支持可编程的CTO
+                cap_val = _run_setpci_read(dev, "CAP_EXP+24.L")
+                if cap_val is None:
+                    print(f"  -> {dev_type} {dev}: Cannot read Device Capabilities 2 register.")
+                    continue
+
+                supported_mask = cap_val & 0xF  # bits 3:0 是支持范围的掩码
+                if supported_mask == 0 and value != 'Default':
+                    print(f"  -> {dev_type} {dev}: Does not support programmable Completion Timeout (fixed to Default Range).")
+                    continue
+
+                # 步骤2: 检查设备是否支持用户指定的目标主范围
+                if value != 'Default':
+                    # 从 'A_1' 这样的键中提取出主范围 'A'
+                    general_range = value.split('_')[0]
+                    if not (supported_mask & support_bit_map.get(general_range, 0)):
+                        print(f"  -> {dev_type} {dev}: Does not support target main Range '{general_range}'. Supported mask=0x{supported_mask:X}.")
+                        continue
+                
+                # 步骤3: 读取 Device Control 2 寄存器
+                ctl_val = _run_setpci_read(dev, "CAP_EXP+28.L")
+                if ctl_val is None:
+                    print(f"  -> {dev_type} {dev}: Cannot read Device Control 2 register.")
+                    continue
+
+                # 步骤4: 检查Completion Timeout是否被禁用 (bit 4)
+                if (ctl_val >> 4) & 0x1:
+                    print(f"  -> {dev_type} {dev}: Completion Timeout is disabled. Cannot configure range.")
+                    continue
+
+                # 步骤5: 计算新的寄存器值并写入
+                target_register_code = register_value_map[value]
+                new_val = (ctl_val & ~0xF) | target_register_code
+
+                success = _run_setpci_write(dev, "CAP_EXP+28.L", new_val)
+                if success:
+                    print(f"  -> {dev_type} {dev}: Successfully set Completion Timeout Range to '{value}' ({range_description_map[value]}).")
+                else:
+                    print(f"  -> {dev_type} {dev}: Failed to set Completion Timeout Range.")
+
+    except FileNotFoundError:
+        print("Error: 'lspci' or 'setpci' command not found. Please ensure pciutils is installed and in the system's PATH.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error: Failed to execute external command: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
 
 def configure_acs_for_upstream_ports(pci_addr: str, target_state: str) -> bool:
     """
@@ -1101,7 +1222,7 @@ def set_max_payload(value_code: int) -> int:
     return 0 if overall_ok else 2
 
 def main():
-    parser = argparse.ArgumentParser(description="A tool that can diagnose and resolve issues of p2p, d2h and h2d blockage or slowdown.")
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter, description="A tool that can diagnose and resolve issues of p2p, d2h and h2d blockage or slowdown.")
     parser.add_argument('--topo', action='store_true', help='AI card P2P topology.')
     parser.add_argument('-l', '--list', action='store_true', help='List GPU.')
     parser.add_argument('--trace', action='store_true', help='Identify the factors causing p2p, d2h and h2d blockage or slowdown.')
@@ -1110,7 +1231,21 @@ def main():
     parser.add_argument('--enable-extend', action='store_true', help='Enable the PCIe extend capability.')
     parser.add_argument('--set-mps', type=str, help='Set GPU MaxPayload.(E.g., 0: 128B; 1: 256B; 2: 512B; 3: 1024B; 4: 2048B; 5: 4096B.)')
     parser.add_argument('--set-mrrs', type=str, help='Set GPU MaxReadReq.(E.g., 0: 128B; 1: 256B; 2: 512B; 3: 1024B; 4: 2048B; 5: 4096B.)')
-    parser.add_argument('--set-timeoutDis', type=str, help='Set GPU Completion Timeout Disable.(E.g., 0: disable; 1: enable.)')
+    parser.add_argument('--set-timeoutDis', type=str, help='Set GPU And RC Completion Timeout Disable.(E.g., 0: disable; 1: enable.)')
+
+    timeoutRange_helptext = """Set GPU and RC Completion Timeout Range.
+Valid options are:
+  Default: Default Range (40ms~50ms@FM, 50us~50ms@NFM)
+  A_1:     Range A (50us~100us)
+  A_2:     Range A (1ms~10ms)
+  B_1:     Range B (16ms~55ms)
+  B_2:     Range B (65ms~210ms)
+  C_1:     Range C (260ms~900ms)
+  C_2:     Range C (1s~3.5s)
+  D_1:     Range D (4s~13s)
+  D_2:     Range D (17s~64s)"""
+    parser.add_argument('--set-timeoutRange', type=str, help=timeoutRange_helptext)
+
     parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.0')
     
     args = parser.parse_args()
@@ -1134,6 +1269,8 @@ def main():
         set_max_read_req(args.set_mrrs)
     elif args.set_timeoutDis:
         set_completion_timeout_disable(args.set_timeoutDis)
+    elif args.set_timeoutRange:
+        set_completion_timeout_range(args.set_timeoutRange)
     else:
         parser.print_help()
 
