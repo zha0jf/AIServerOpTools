@@ -6,7 +6,7 @@ This project is a collection of operation and maintenance tools for domestic AI 
 
 ## Tools
 
-This project currently contains three tools:
+This project currently contains four tools:
 
 1. **Server Information Collection Tool** (`tools/server_info_collect.sh`): A bash script that collects comprehensive server information including hardware (CPU, AI accelerator cards, memory, motherboard, BIOS, storage, network) and software (OS, compiler, AI libraries, Docker, tuned profiles, IOMMU/SMMU status) details. It generates a detailed report for AI server diagnostics and comparison.
 
