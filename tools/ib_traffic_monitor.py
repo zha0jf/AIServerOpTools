@@ -1,6 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+#================================================================
+#
+#          FILE: ib_traffic_monitor.py
+#
+#         USAGE: ./ib_traffic_monitor.py [-i interval] [-I interface] [--lid]
+#
+#   DESCRIPTION: Monitors InfiniBand traffic on AI servers with enhanced UI.
+#                Displays real-time TX/RX rates and total traffic statistics.
+#
+#  REQUIREMENTS: ibstat, perfquery, python-prettytable
+#          BUGS: ---
+#         NOTES: ---
+#        AUTHOR: Zha0jf
+#  ORGANIZATION: Skysolidiss
+#       CREATED: 2025-08-17
+#      REVISION: 1.0
+#
+#================================================================
+
 """
 Enhanced InfiniBand Traffic Monitor
 ===============================

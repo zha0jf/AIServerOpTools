@@ -1,6 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+#================================================================
+#
+#          FILE: gpu-pcie-tuner.py
+#
+#         USAGE: sudo ./gpu-pcie-tuner.py
+#
+#   DESCRIPTION: Automatically tunes PCIe settings for AI GPUs to
+#                optimize performance. Adjusts Completion Timeout
+#                and Extended Tag Field settings.
+#
+#  REQUIREMENTS: lspci, setpci
+#          BUGS: ---
+#         NOTES: Run with sudo/root privileges.
+#        AUTHOR: Zha0jf
+#  ORGANIZATION: Skysolidiss
+#       Modified: 2025-08-28
+#      REVISION: 1.0
+#
+#================================================================
+
 import subprocess
 import sys
 import os
@@ -719,7 +739,7 @@ def enable_acs():
             return
         
         success = True
-        for pci_addr in gpu_devices:
+        for pci_addr in gpu_lines:
             print(f"  Enabling ACS for {pci_addr}")
             # 调用configure_acs_for_upstream_ports函数启用ACS
             if not configure_acs_for_upstream_ports(pci_addr, 'enable'):
