@@ -69,27 +69,27 @@ declare -A VENDOR_CONFIG=(
 )
 # 帮助信息函数
 show_help() {
-    echo "AI服务器重启测试脚本 (带进度保存功能)"
-    echo "功能：自动进行指定次数的重启测试，每次重启后验证AI卡的识别状态"
+    echo "AI Server Reboot Test Script (with progress save functionality)"
+    echo "Function: Automatically perform specified number of reboot tests, verify AI card recognition status after each reboot"
     echo ""
-    echo "用法: $0 [OPTIONS] <重启次数>"
-    echo "示例: $0 -r 5                  # 使用reboot重启5次"
-    echo "      $0 -i -c 1 3            # 使用IPMI reset重启3次，仅检查1号厂商(${VENDOR_LIST[0]})卡"
+    echo "Usage: $0 [OPTIONS] <reboot_count>"
+    echo "Examples: $0 -r 5                  # Reboot 5 times using reboot command"
+    echo "          $0 -i -c 1 3            # Reboot 3 times using IPMI reset, check only vendor #1 (${VENDOR_LIST[0]}) cards"
     echo ""
-    echo "参数说明:"
-    echo "  -r, --reboot          使用reboot命令重启 (默认)"
-    echo "  -i, --ipmi            使用IPMI reset重启"
-    echo "  -c, --card NUMBER     指定检查的AI卡厂商序号:"
+    echo "Options:"
+    echo "  -r, --reboot          Use reboot command to restart (default)"
+    echo "  -i, --ipmi            Use IPMI reset to restart"
+    echo "  -c, --card NUMBER     Specify AI card vendor number to check:"
     
     # 动态生成厂商列表
     for i in "${!VENDOR_LIST[@]}"; do
         echo "                        $((i+1)): ${VENDOR_LIST[i]}"
     done
     
-    echo "  -h, --help            显示帮助信息"
+    echo "  -h, --help            Show help information"
     echo ""
-    echo "日志文件: 测试结果会保存在 /root/ai_reboot_test.log 文件中"
-    echo "进度文件: 当前测试进度保存在 /root/ai_test_progress 文件中"
+    echo "Log file: Test results will be saved to /root/ai_reboot_test.log"
+    echo "Progress file: Current test progress saved to /root/ai_test_progress"
     exit 0
 }
 
@@ -136,8 +136,8 @@ while [[ $# -gt 0 ]]; do
             VENDOR_NUMBER="$2"
             SPECIFIC_VENDOR=$(get_vendor_by_number "$VENDOR_NUMBER")
             if [ -z "$SPECIFIC_VENDOR" ]; then
-                echo "错误：无效的厂商序号 '$VENDOR_NUMBER'，请使用 1-${#VENDOR_LIST[@]} 之间的数字"
-                echo "使用 -h 查看帮助信息"
+                echo "Error: Invalid vendor number '$VENDOR_NUMBER', please use numbers between 1-${#VENDOR_LIST[@]}"
+                echo "Use -h to view help information"
                 exit 1
             fi
             shift 2
@@ -150,7 +150,7 @@ while [[ $# -gt 0 ]]; do
                 TOTAL_REBOOTS="$1"
                 shift
             else
-                echo "错误：未知参数 '$1'"
+                echo "Error: Unknown parameter '$1'"
                 show_help
                 exit 1
             fi
@@ -159,7 +159,7 @@ while [[ $# -gt 0 ]]; do
 done
 # 检查必需参数
 if [ -z "$TOTAL_REBOOTS" ]; then
-    echo "错误：缺少重启次数参数"
+    echo "Error: Missing reboot count parameter"
     show_help
     exit 1
 fi
@@ -167,23 +167,24 @@ fi
 # 注：厂商验证已在参数解析阶段完成
 
 # 文件路径配置
+SERVICE_NAME="ai-reboot-test"
 LOG_FILE="/root/ai_reboot_test.log"
 PROGRESS_FILE="/root/ai_test_progress"
-SERVICE_FILE="/etc/systemd/system/ai_test.service"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 # 检查lspci命令是否存在
 if ! command -v lspci &> /dev/null; then
-    echo "错误：lspci命令未找到，请安装pciutils包"
+    echo "Error: lspci command not found, please install pciutils package"
     exit 1
 fi
 
 # 如果指定了IPMI重启方式，检查ipmitool是否安装
 if [ "$REBOOT_TYPE" = "ipmi" ]; then
     if ! command -v ipmitool &> /dev/null; then
-        echo "错误：指定了IPMI重启方式，但ipmitool命令未找到，请安装ipmitool包"
-        echo "或者使用 -r 参数改为使用reboot命令重启"
+        echo "Error: IPMI reboot mode specified, but ipmitool command not found, please install ipmitool package"
+        echo "Or use -r parameter to switch to reboot command restart"
         exit 1
     fi
-    echo "检测到ipmitool工具，将使用IPMI reset方式重启"
+    echo "Detected ipmitool, will use IPMI reset method to restart"
 fi
 
 # 获取AI卡设备列表函数
@@ -222,22 +223,22 @@ check_vendor_cards() {
     local tool="${VENDOR_CONFIG["${vendor}_TOOL"]}"
     
     if [ -z "$tool" ]; then
-        echo "    未定义 $vendor 的管理工具"
+        echo "    Management tool for $vendor is not defined"
         return 1
     fi
     
     local tool_name="${tool%% *}"  # 获取命令名
     
     if ! command -v "$tool_name" &> /dev/null; then
-        echo "    警告：$vendor AI卡管理工具 ($tool_name) 未安装"
+        echo "    Warning: $vendor AI card management tool ($tool_name) not installed"
         return 1
     fi
     
-    echo "    $vendor AI卡状态 (使用 $tool_name):"
+    echo "    $vendor AI card status (using $tool_name):"
     if $tool 2>/dev/null; then
         return 0
     else
-        echo "      错误：执行 $tool 失败"
+        echo "      Error: Failed to execute $tool"
         return 1
     fi
 }
@@ -248,22 +249,22 @@ check_vendor_topology() {
     local topo_cmd="${VENDOR_CONFIG["${vendor}_TOPO"]}"
     
     if [ -z "$topo_cmd" ]; then
-        echo "    未定义 $vendor 的拓扑命令"
+        echo "    Topology command for $vendor is not defined"
         return 1
     fi
     
     local tool_name="${topo_cmd%% *}"  # 获取命令名
     
     if ! command -v "$tool_name" &> /dev/null; then
-        echo "    警告：$vendor AI卡管理工具 ($tool_name) 未安装"
+        echo "    Warning: $vendor AI card management tool ($tool_name) not installed"
         return 1
     fi
     
-    echo "    $vendor AI卡拓扑信息:"
+    echo "    $vendor AI card topology information:"
     if $topo_cmd 2>/dev/null; then
         return 0
     else
-        echo "      错误：执行 $topo_cmd 失败"
+        echo "      Error: Failed to execute $topo_cmd"
         return 1
     fi
 }
@@ -271,34 +272,34 @@ check_vendor_topology() {
 # 初始化或读取进度文件
 if [ -f "$PROGRESS_FILE" ]; then
     CURRENT_REBOOT=$(cat $PROGRESS_FILE)
-    echo "检测到未完成的测试进度：$CURRENT_REBOOT/$TOTAL_REBOOTS"
+    echo "Detected incomplete test progress: $CURRENT_REBOOT/$TOTAL_REBOOTS"
 else
     CURRENT_REBOOT=0
-    echo "初始化新的测试进度"
+    echo "Initializing new test progress"
     echo $CURRENT_REBOOT > $PROGRESS_FILE
 
     # 初始化日志文件
-    echo "AI服务器重启测试日志" > $LOG_FILE
-    echo "测试开始时间: $(date)" >> $LOG_FILE
-    echo "总重启次数: $TOTAL_REBOOTS" >> $LOG_FILE
-    echo "重启类型: $REBOOT_TYPE" >> $LOG_FILE
+    echo "AI Server Reboot Test Log" > $LOG_FILE
+    echo "Test start time: $(date)" >> $LOG_FILE
+    echo "Total reboots: $TOTAL_REBOOTS" >> $LOG_FILE
+    echo "Reboot type: $REBOOT_TYPE" >> $LOG_FILE
     if [ -n "$SPECIFIC_VENDOR" ]; then
-        echo "指定AI卡厂商: $SPECIFIC_VENDOR" >> $LOG_FILE
+        echo "Specified AI card vendor: $SPECIFIC_VENDOR" >> $LOG_FILE
     else
-        echo "检查所有AI卡厂商" >> $LOG_FILE
+        echo "Check all AI card vendors" >> $LOG_FILE
     fi
     echo "" >> $LOG_FILE
-    echo "测试次数,测试时间:" >> $LOG_FILE
-    echo "AI卡设备信息" >> $LOG_FILE
-    echo "              链路状态" >> $LOG_FILE
-    echo "AI卡管理工具输出" >> $LOG_FILE
-    echo "AI卡拓扑信息" >> $LOG_FILE
+    echo "Test count, Test time:" >> $LOG_FILE
+    echo "AI card device information" >> $LOG_FILE
+    echo "              Link status" >> $LOG_FILE
+    echo "AI card management tool output" >> $LOG_FILE
+    echo "AI card topology information" >> $LOG_FILE
     echo "" >> $LOG_FILE
 fi
 
 # 创建Systemd服务文件（用于自动重启）
 create_service() {
-    echo "创建Systemd服务..."
+    echo "Creating Systemd service..."
     
     # 构建命令参数
     local cmd_args=""
@@ -314,7 +315,7 @@ create_service() {
     
     sudo bash -c "cat > $SERVICE_FILE" <<EOF
 [Unit]
-Description=AI服务器重启测试服务
+Description=AI Server Reboot Test Service
 After=network.target
 
 [Service]
@@ -329,18 +330,18 @@ WantedBy=multi-user.target
 EOF
 
     sudo systemctl daemon-reload
-    sudo systemctl enable ai_test.service
-    echo "已设置开机自启动"
+    sudo systemctl enable ${SERVICE_NAME}.service
+    echo "Boot auto-start has been set"
 }
 
 # 取消Systemd服务
 cancel_service() {
-    echo "正在取消自动重启服务..."
-    sudo systemctl disable ai_test.service
+    echo "Canceling auto-restart service..."
+    sudo systemctl disable ${SERVICE_NAME}.service
     sudo rm -f $SERVICE_FILE
     sudo systemctl daemon-reload
     rm -f $PROGRESS_FILE
-    echo "已取消自动重启设置"
+    echo "Auto-restart setting has been canceled"
 }
 
 # 执行测试
@@ -348,7 +349,7 @@ perform_test() {
     CURRENT_REBOOT=$((CURRENT_REBOOT + 1))
     echo $CURRENT_REBOOT > $PROGRESS_FILE
 
-    echo "正在进行第 $CURRENT_REBOOT 次测试..."
+    echo "Performing test #$CURRENT_REBOOT..."
     
     # 记录测试结果
     echo -e "RUN #$CURRENT_REBOOT  $(date +'%Y-%m-%d %H:%M:%S'):" >> $LOG_FILE
@@ -357,14 +358,14 @@ perform_test() {
     ai_cards=$(get_ai_cards)
     
     if [ -z "$ai_cards" ]; then
-        echo "警告：未找到任何AI卡设备" | tee -a $LOG_FILE
+        echo "Warning: No AI card devices found" | tee -a $LOG_FILE
     else
-        echo "AI卡设备列表 (lspci):" >> $LOG_FILE
+        echo "AI Card Device List (lspci):" >> $LOG_FILE
         echo "$ai_cards" >> $LOG_FILE
         echo "" >> $LOG_FILE
         
         # 检查PCIe链路状态
-        echo "PCIe链路状态:" >> $LOG_FILE
+        echo "PCIe Link Status:" >> $LOG_FILE
         while IFS= read -r card; do
             if [ -n "$card" ]; then
                 # 直接获取每行的第一个字段（PCI地址），兼容两种格式
@@ -381,11 +382,11 @@ perform_test() {
     
     # 检查指定厂商的AI卡状态
     if [ -n "$SPECIFIC_VENDOR" ]; then
-        echo "$SPECIFIC_VENDOR AI卡状态:" >> $LOG_FILE
+        echo "$SPECIFIC_VENDOR AI Card Status:" >> $LOG_FILE
         check_vendor_cards "$SPECIFIC_VENDOR" >> $LOG_FILE 2>&1
         echo "" >> $LOG_FILE
         
-        echo "$SPECIFIC_VENDOR AI卡拓扑信息:" >> $LOG_FILE
+        echo "$SPECIFIC_VENDOR AI Card Topology Information:" >> $LOG_FILE
         check_vendor_topology "$SPECIFIC_VENDOR" >> $LOG_FILE 2>&1
         echo "" >> $LOG_FILE
     else
@@ -416,11 +417,11 @@ perform_test() {
         done <<< "$ai_cards"
         
         for vendor in "${vendors_found[@]}"; do
-            echo "$vendor AI卡状态:" >> $LOG_FILE
+            echo "$vendor AI Card Status:" >> $LOG_FILE
             check_vendor_cards "$vendor" >> $LOG_FILE 2>&1
             echo "" >> $LOG_FILE
             
-            echo "$vendor AI卡拓扑信息:" >> $LOG_FILE
+            echo "$vendor AI Card Topology Information:" >> $LOG_FILE
             check_vendor_topology "$vendor" >> $LOG_FILE 2>&1
             echo "" >> $LOG_FILE
         done
@@ -429,21 +430,21 @@ perform_test() {
     echo "===========================================" >> $LOG_FILE
     echo "" >> $LOG_FILE
     
-    echo "第 $CURRENT_REBOOT 次测试完成。"
+    echo "Test #$CURRENT_REBOOT completed."
 
     if [ $CURRENT_REBOOT -ge $TOTAL_REBOOTS ]; then
-        echo "所有测试已完成！"
+        echo "All tests completed!"
         cancel_service
-        echo "测试结束时间: $(date)" >> $LOG_FILE
+        echo "Test end time: $(date)" >> $LOG_FILE
         exit 0
     else
         if [ "$REBOOT_TYPE" = "ipmi" ]; then
-            echo "准备通过IPMI重置系统..."
+            echo "Preparing to reset system via IPMI..."
             create_service
             sleep 3
             ipmitool power reset
         else
-            echo "准备重启系统..."
+            echo "Preparing to restart system..."
             create_service
             sleep 3
             reboot
@@ -453,7 +454,7 @@ perform_test() {
 
 # 主执行逻辑
 if [ $CURRENT_REBOOT -eq 0 ]; then
-    echo "首次运行，创建服务文件..."
+    echo "First run, creating service file..."
     create_service
 fi
 
