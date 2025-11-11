@@ -56,7 +56,7 @@ MD_YELLOW="⚠️"
 exec &> >(tee -a "$OUTPUT_FILE")
 
 # 6. 全局变量定义
-AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:|MetaX|9999:|Iluvatar|1e3e:|Hexaflake|1faa:"
+AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:|MetaX|9999:|Iluvatar|1e3e:|Hexaflake|1faa:|Denglin|1e27:"
 IF_KEYWORDS="Intel|8086:|Mellanox|15b3:|MUCSE|8848:|Wangxun|8088:|Corigine|1da8:|Nebula|1f0f:|metaScale|1f67:"
 IP_LINK_FILTER="lo|vir|kube|cali|tunl|docker|veth|br-"
 
@@ -260,7 +260,7 @@ elif command -v hxsmi &> /dev/null; then
     print_code "sh" "检测到 Hexaflake GPU 卡\n$(hxsmi)"
     print_code "sh" "Hexaflake GPU 拓扑信息\n$(hxsmi topo  2>/dev/null || echo '不支持拓扑命令')"
 else
-    print_status "AI卡状态" "未找到主流AI卡管理工具 (nvidia-smi, npu-smi, ersmi, mx-smi, ixsmi, hxsmi)" "warn"
+    print_status "AI卡状态" "未找到主流AI卡管理工具 (nvidia-smi, npu-smi, ersmi, mx-smi, ixsmi, hxsmi, dlsmi)" "warn"
 fi
 
 print_h2 "1.9 AI卡详细信息 (lspci)"
@@ -405,7 +405,7 @@ if [ -d /sys/class/iommu ] && [ -n "$(ls -A /sys/class/iommu)" ]; then
     print_status "IOMMU/SMMU 状态" "已开启 (Enabled) - AI服务器通常要求关闭" "error"
     
     # 使用更有限的关键词集来检查IOMMU绑定状态
-    IOMMU_AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:"
+    IOMMU_AI_CARD_KEYWORDS="NVIDIA|10de:|Huawei|19e5:|Enrigin|1fbd:|Denglin|1e27:"
     AI_CARD_ADDRESSES=$(lspci -nn | grep -iE "$IOMMU_AI_CARD_KEYWORDS" | awk '{print $1}')
     if [ -n "$AI_CARD_ADDRESSES" ]; then
         print_h3 "AI 卡与 IOMMU 绑定状态 (诊断信息)"

@@ -106,7 +106,9 @@ AI_CARD_KEYWORDS = [
         "Iluvatar",
         "1e3e:",  # Iluvatar的PCI ID
         "Hexaflake",
-        "1faa:"   # Hexaflake的PCI ID
+        "1faa:",  # Hexaflake的PCI ID
+        "Denglin",
+        "1e27:"   # 登临GPU的PCI ID
     ]
 
 # 定义厂商对应的AI卡管理工具
@@ -116,7 +118,8 @@ VENDOR_TOOLS = {
     "Enrigin": ["ersmi"],
     "MetaX": ["mx-smi"],
     "Iluvatar": ["ixsmi"],
-    "Hexaflake": ["hxsmi"]
+    "Hexaflake": ["hxsmi"],
+    "Denglin": ["dlsmi"]
 }
 
 # 定义厂商对应的AI卡拓扑命令
@@ -126,7 +129,8 @@ VENDOR_TOPO_TOOLS = {
     "Enrigin": ["ersmi", "--topo"],
     "MetaX": ["mx-smi", "topo", "-m"],
     "Iluvatar": ["ixsmi", "topo", "-m"],
-    "Hexaflake": ["hxsmi", "topo"]
+    "Hexaflake": ["hxsmi", "topo"],
+    "Denglin": ["dlsmi", "topo", "-m"]
 }
 
 # --- 全局常量 (针对PCIe扩展功能) ---
@@ -187,6 +191,8 @@ def get_gpu_list():
                         vendors_found.add("Iluvatar")
                     elif "Hexaflake" in keyword or "1faa:" in keyword:
                         vendors_found.add("Hexaflake")
+                    elif "Denglin" in keyword or "1e27:" in keyword:
+                        vendors_found.add("Denglin")
                     break
         
         # 打印通过lspci找到的GPU列表
@@ -240,6 +246,7 @@ def get_pcie_topology():
     # MetaX: mx-smi topo -m
     # Iluvatar: ixsmi topo -m
     # Hexaflake: hxsmi topo
+    # Denglin: dlsmi topo -m
     
     try:
         # 使用lspci获取GPU设备列表
@@ -263,6 +270,8 @@ def get_pcie_topology():
                         vendors_found.add("Iluvatar")
                     elif "Hexaflake" in keyword or "1faa:" in keyword:
                         vendors_found.add("Hexaflake")
+                    elif "Denglin" in keyword or "1e27:" in keyword:
+                        vendors_found.add("Denglin")
                     break
         
         # 检查每个厂商的工具是否可用并调用相应的topo命令

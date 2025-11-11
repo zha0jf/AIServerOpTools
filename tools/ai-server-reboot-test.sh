@@ -8,7 +8,7 @@
 #
 #   DESCRIPTION: 自动进行指定次数的重启测试，每次重启后验证AI卡
 #                的识别状态。支持多种AI卡厂商(NVIDIA, Huawei,
-#                Enrigin, MetaX, Iluvatar, Hexaflake)。
+#                Enrigin, MetaX, Iluvatar, Hexaflake, Denglin)。
 #                检查系统所有AI卡的链路带宽和运行状态。
 #                支持reboot和IPMI reset两种重启方式。
 #
@@ -33,7 +33,7 @@
 #================================================================
 
 # 有序的厂商列表（用于序号映射和帮助信息）
-VENDOR_LIST=("NVIDIA" "Huawei" "Enrigin" "MetaX" "Iluvatar" "Hexaflake")
+VENDOR_LIST=("NVIDIA" "Huawei" "Enrigin" "MetaX" "Iluvatar" "Hexaflake" "Denglin")
 
 # 厂商配置信息（包含PCI ID、管理工具、拓扑命令）
 declare -A VENDOR_CONFIG=(
@@ -66,8 +66,12 @@ declare -A VENDOR_CONFIG=(
     ["Hexaflake_PCI"]="1faa:"
     ["Hexaflake_TOOL"]="hxsmi"
     ["Hexaflake_TOPO"]="hxsmi topo"
+    
+    # 登临GPU配置
+    ["Denglin_PCI"]="1e27:"
+    ["Denglin_TOOL"]="dlsmi"
+    ["Denglin_TOPO"]="dlsmi topo -m"
 )
-# 帮助信息函数
 show_help() {
     echo "AI Server Reboot Test Script (with progress save functionality)"
     echo "Function: Automatically perform specified number of reboot tests, verify AI card recognition status after each reboot"
