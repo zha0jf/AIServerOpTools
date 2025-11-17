@@ -16,7 +16,7 @@
 #         NOTES: Run with sudo/root privileges.
 #        AUTHOR: Zha0jf
 #  ORGANIZATION: Skysolidiss
-#       Modified: 2025-11-11
+#       Modified: 2025-11-17
 #      REVISION: 1.0
 #
 #================================================================
@@ -103,6 +103,8 @@ AI_CARD_KEYWORDS = [
         "1fbd:",  # Enrigin的PCI ID
         "MetaX",
         "9999:",  # MetaX的PCI ID
+        "Moore Threads",
+        "1ed5:",  # Moore Threads的PCI ID
         "Iluvatar",
         "1e3e:",  # Iluvatar的PCI ID
         "Hexaflake",
@@ -117,6 +119,7 @@ VENDOR_TOOLS = {
     "Huawei": ["npu-smi", "info"],
     "Enrigin": ["ersmi"],
     "MetaX": ["mx-smi"],
+    "Moore Threads": ["mthreads-gmi"],
     "Iluvatar": ["ixsmi"],
     "Hexaflake": ["hxsmi"],
     "Denglin": ["dlsmi"]
@@ -128,6 +131,7 @@ VENDOR_TOPO_TOOLS = {
     "Huawei": ["npu-smi", "info", "-t", "--topo"],
     "Enrigin": ["ersmi", "--topo"],
     "MetaX": ["mx-smi", "topo", "-m"],
+    "Moore Threads": ["mthreads-gmi", "topo", "-m"],
     "Iluvatar": ["ixsmi", "topo", "-m"],
     "Hexaflake": ["hxsmi", "topo"],
     "Denglin": ["dlsmi", "topo", "-m"]
@@ -151,7 +155,7 @@ def get_lspci_gpu_list():
         gpu_devices = []
         for line in lines:
             # 跳过audio设备
-            if "Audio device" in line:
+            if "Audio" in line:
                 continue
             for keyword in AI_CARD_KEYWORDS:
                 if keyword in line:
@@ -187,6 +191,8 @@ def get_gpu_list():
                         vendors_found.add("Enrigin")
                     elif "MetaX" in keyword or "9999:" in keyword:
                         vendors_found.add("MetaX")
+                    elif "Moore Threads" in keyword or "1ed5:" in keyword:
+                        vendors_found.add("Moore Threads")
                     elif "Iluvatar" in keyword or "1e3e:" in keyword:
                         vendors_found.add("Iluvatar")
                     elif "Hexaflake" in keyword or "1faa:" in keyword:
@@ -240,13 +246,6 @@ def get_gpu_list():
 def get_pcie_topology():
     """获取AI卡P2P拓扑信息"""
     # 根据不同的AI卡厂商使用对应的工具获取拓扑信息
-    # NVIDIA: nvidia-smi topo -m
-    # Huawei: npu-smi info -t
-    # Enrigin: ersmi --topo
-    # MetaX: mx-smi topo -m
-    # Iluvatar: ixsmi topo -m
-    # Hexaflake: hxsmi topo
-    # Denglin: dlsmi topo -m
     
     try:
         # 使用lspci获取GPU设备列表
@@ -266,6 +265,8 @@ def get_pcie_topology():
                         vendors_found.add("Enrigin")
                     elif "MetaX" in keyword or "9999:" in keyword:
                         vendors_found.add("MetaX")
+                    elif "Moore Threads" in keyword or "1ed5:" in keyword:
+                        vendors_found.add("Moore Threads")
                     elif "Iluvatar" in keyword or "1e3e:" in keyword:
                         vendors_found.add("Iluvatar")
                     elif "Hexaflake" in keyword or "1faa:" in keyword:

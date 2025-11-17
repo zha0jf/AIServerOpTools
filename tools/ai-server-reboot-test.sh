@@ -28,12 +28,13 @@
 #        AUTHOR: zha0jf
 #  ORGANIZATION: Skysolidiss
 #       CREATED: 2025-09-02
+#   LAST MODIFIED: 2025-11-17
 #      REVISION: 1.0
 #
 #================================================================
 
 # 有序的厂商列表（用于序号映射和帮助信息）
-VENDOR_LIST=("NVIDIA" "Huawei" "Enrigin" "MetaX" "Iluvatar" "Hexaflake" "Denglin")
+VENDOR_LIST=("NVIDIA" "Huawei" "Enrigin" "MetaX" "Iluvatar" "Hexaflake" "Denglin" "Moore Threads")
 
 # 厂商配置信息（包含PCI ID、管理工具、拓扑命令）
 declare -A VENDOR_CONFIG=(
@@ -71,6 +72,11 @@ declare -A VENDOR_CONFIG=(
     ["Denglin_PCI"]="1e27:"
     ["Denglin_TOOL"]="dlsmi"
     ["Denglin_TOPO"]="dlsmi topo -m"
+    
+    # 摩尔线程GPU配置
+    ["Moore Threads_PCI"]="1ed5:"
+    ["Moore Threads_TOOL"]="mthreads-gmi"
+    ["Moore Threads_TOPO"]="mthreads-gmi topo -m"
 )
 show_help() {
     echo "AI Server Reboot Test Script (with progress save functionality)"
@@ -198,7 +204,7 @@ get_ai_cards() {
     # 使用lspci获取AI卡设备
     while read -r line; do
         # 跳过Audio设备
-        if [[ "$line" == *"Audio device"* ]]; then
+        if [[ "$line" == *"Audio"* ]]; then
             continue
         fi
         

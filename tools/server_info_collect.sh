@@ -16,9 +16,13 @@
 #        AUTHOR: zha0jf
 #  ORGANIZATION: Skysolidiss
 #       CREATED: 2025-08-13
+# LAST MODIFIED: 2025-11-17
 #      REVISION: 1.0
 #
 #================================================================
+
+# 定义全局变量
+AI_CARD_KEYWORDS="10de:|19e5:|1fbd:|9999:|1e3e:|1faa:|1e27:|1ed5:"
 
 # Output file
 OUTPUT_FILE="server_info_$(hostname)_$(date +%Y%m%d).txt"
@@ -54,7 +58,7 @@ lscpu
 
 print_header "1.2 AI Accelerator Card Information"
 echo ">>> Attempting to find AI card vendor tools..."
-# NOTE: Replace with your actual AI card tool.
+# Check for all supported AI card vendor tools
 if command -v nvidia-smi &> /dev/null; then
     echo "Found NVIDIA SMI tool."
     nvidia-smi
@@ -63,16 +67,30 @@ elif command -v npu-smi &> /dev/null; then
     echo "Found Huawei NPU SMI tool."
     npu-smi info
 elif command -v ersmi &> /dev/null; then
-    echo "Jiangyuan GPU SMI tool."
+    echo "Found Enrigin GPU SMI tool."
     ersmi info
+elif command -v mx-smi &> /dev/null; then
+    echo "Found MetaX GPU SMI tool."
+    mx-smi
+elif command -v mthreads-gmi &> /dev/null; then
+    echo "Found Moore Threads GPU SMI tool."
+    mthreads-gmi
+elif command -v ixsmi &> /dev/null; then
+    echo "Found Iluvatar GPU SMI tool."
+    ixsmi
+elif command -v hxsmi &> /dev/null; then
+    echo "Found Hexaflake GPU SMI tool."
+    hxsmi
+elif command -v dlsmi &> /dev/null; then
+    echo "Found Denglin GPU SMI tool."
+    dlsmi
 else
     echo "!!! AI card vendor tool not found. !!!"
 fi
 
 echo ""
 echo ">>> Finding AI Card PCI Address for detailed checks..."
-AI_CARD_KEYWORDS="1fbd:0001"
-AI_CARD_ADDRESSES=$(lspci | grep -iE "$AI_CARD_KEYWORDS" | awk '{print $1}')
+AI_CARD_ADDRESSES=$(lspci -nn | grep -iE "$AI_CARD_KEYWORDS" | grep -v -i "audio" | awk '{print $1}')
 
 if [ -n "$AI_CARD_ADDRESSES" ]; then
     for addr in $AI_CARD_ADDRESSES; do
